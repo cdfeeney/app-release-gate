@@ -140,13 +140,16 @@ def texts(el):
 
 # ---------------------------------------------------------------- rules
 
-def rule_count_matches_rows(screens, cfg, report):
-    """A stated count ("0 of 16", "2 sets × 5") must equal the rows shown under it."""
+def rule_count_matches_rows(screens, cfg, report, scrolled=None):
+    """A stated count ("0 of 16", "2 sets × 5") must equal the rows shown under it. Only a screen the tour
+    scrolled to the bottom shows every row (lazy lists drop off-screen rows); single screenshots are skipped."""
     patterns = [re.compile(p) for p in cfg.get("rowCountPatterns", cfg.get("countPatterns", []))]
     row_re = re.compile(cfg["rowIdentifier"]) if cfg.get("rowIdentifier") else None
     if not patterns or not row_re:
         return
     for screen in screens:
+        if scrolled is not None and (screen["flow_name"], screen["screen"]) not in scrolled:
+            continue
         header = None
         rows = []
 
@@ -369,7 +372,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
                 "findings": [{"rule": "tour-valid", "where": str(tour_dir), "message": str(e)}]}
     screens = screen_union(stops)
     report = Report()
-    rule_count_matches_rows(screens, cfg, report)
+    rule_count_matches_rows(screens, cfg, report, scrolled)
     rule_same_count_everywhere(screens, cfg, report)
     rule_no_duplicate_titles(screens, cfg, report)
     rule_durations_in_minutes(screens, cfg, report)

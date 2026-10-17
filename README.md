@@ -19,7 +19,8 @@ This gate looks at what a person sees, with their real data, and refuses the upl
 
 ## Rules (what the owner kept finding on the phone)
 
-- `count-matches-rows`: a stated count ("0 of 16") equals the rows shown under it
+- `count-matches-rows`: a stated count ("0 of 16") equals the rows shown under it (on screens the tour scrolled
+  to the bottom; a single screenshot cannot show every row)
 - `same-count-everywhere`: the same titled item states the same total on every screen. A count pattern with a
   `(?P<title>)` group carries its title ("Daily mobility (5 min) · 0 of 4 done"); one without takes the StaticText
   just before it on the same row, for two-line headers ("Daily mobility (5 min)" / "5 min · 0 of 6"); a count

@@ -150,8 +150,8 @@ def test_count_line_without_a_title_line_fails():
 def test_rows_reachable_only_where_the_tour_scrolled():
     everywhere = run_tour(TREE, TODAY, fixtures={}, scrolled=None)      # no manifest: check every screen
     single_shots = run_tour(TREE, TODAY, fixtures={}, scrolled=set())   # nothing scrolled: a row below the fold is fine
-    assert findings(everywhere, "rows-reachable")
-    assert not findings(single_shots, "rows-reachable")
+    assert findings(everywhere, "rows-reachable") and findings(everywhere, "count-matches-rows")
+    assert not findings(single_shots, "rows-reachable") and not findings(single_shots, "count-matches-rows")  # a single shot cannot show every row either
     manifest = {"flows": [{"name": "today", "steps": [{"waitFor": "x"}, {"scrollToBottom": True, "shot": "today"}]},
                           {"name": "session", "steps": [{"tap": "y"}, {"scrollToBottom": True}, {"shot": "after"}]},
                           {"name": "plan", "steps": [{"scrollToBottom": True, "shot": ""}]}]}

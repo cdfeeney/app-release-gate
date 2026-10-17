@@ -20,11 +20,17 @@ This gate looks at what a person sees, with their real data, and refuses the upl
 ## Rules (what the owner kept finding on the phone)
 
 - `count-matches-rows`: a stated count ("0 of 16") equals the rows shown under it
-- `same-count-everywhere`: the same titled item states the same total on every screen
+- `same-count-everywhere`: the same titled item states the same total on every screen. A count pattern with a
+  `(?P<title>)` group carries its title ("Daily mobility (5 min) · 0 of 4 done"); one without takes the StaticText
+  just before it on the same row, for two-line headers ("Daily mobility (5 min)" / "5 min · 0 of 6"); a count
+  line with no title line beside it is itself a finding
 - `no-duplicate-titles`: no two blocks on one screen share a title
 - `durations-in-minutes`: 60 s or more is never shown in seconds
-- `no-stale-week`: no "week N" text for a week other than the fixture's
-- `rows-reachable`: every row is fully visible above any pinned bar at some scroll position
+- `no-stale-week`: no "week N" text for a week other than the fixture's; progression prose ("from week 3") passes
+  only through an explicit `weekAllow` pattern
+- `rows-reachable`: every row is fully visible above any pinned bar at some scroll position; checked only on
+  screens the tour scrolled to the bottom (`scrollToBottom` steps in `tour.json`), since a single screenshot
+  legitimately has rows below the fold
 - `controls-change-screen`: every tapped control changed something
 - `instruction-not-live`: instruction text is never a tappable item
 - `forbidden-text`: `Optional(`, `nil`, `NaN`, placeholders

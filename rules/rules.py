@@ -110,7 +110,8 @@ def screen_union(stops):
     screens = {}
     for stop in stops:
         key = (stop["fixture"], stop["flow"], stop.get("screen", stop["name"]))
-        screen = screens.setdefault(key, {"fixture": stop["fixture"], "flow": f"{stop['flow']}/{key[2]}", "elements": [], "seen": set(), "stops": []})
+        screen = screens.setdefault(key, {"fixture": stop["fixture"], "flow": f"{stop['flow']}/{key[2]}", "flow_name": stop["flow"],
+                                          "screen": key[2], "elements": [], "seen": set(), "stops": []})
         screen["stops"].append(stop)
         for el in stop["elements"]:
             k = element_key(el)
@@ -176,20 +177,53 @@ def rule_count_matches_rows(screens, cfg, report):
         close()
 
 
+def title_line_before(elements, i):
+    """Title for a count line that has none of its own: the StaticText immediately before it, on the same
+    row (frames overlap vertically) — the "Daily mobility (5 min)" / "5 min · 0 of 6" two-line header layout.
+    None when there is no such line; the caller fails closed on that."""
+    el = elements[i]
+    prev = elements[i - 1] if i > 0 else None
+    if not (prev and prev["type"] == "StaticText" and prev["label"] and prev["frame"] and el["frame"]):
+        return None
+    top, bottom = el["frame"][1], el["frame"][1] + el["frame"][3]
+    prev_top, prev_bottom = prev["frame"][1], prev["frame"][1] + prev["frame"][3]
+    if prev_top < bottom and top < prev_bottom:
+        return prev["label"]
+    return None
+
+
 def rule_same_count_everywhere(screens, cfg, report):
-    """The same titled item must state the same total on every screen (per fixture)."""
-    patterns = [re.compile(p) for p in cfg.get("countPatterns", []) if "(?P<title>" in p]
+    """The same titled item must state the same total on every screen (per fixture).
+    A count pattern with a (?P<title>) group carries its title; one without takes the StaticText beside it,
+    and a count line with no title line beside it is a finding (never silently skipped)."""
+    patterns = [re.compile(p) for p in cfg.get("countPatterns", [])]
     if not patterns:
         return
     by_fixture = {}
     for screen in screens:
-        for el in screen["elements"]:
-            t = texts(el)
-            for p in patterns:
-                m = p.search(t)
-                if m and m.group("title") and m.group("total"):
-                    title = re.sub(r"\s+", " ", m.group("title")).strip().lower()
-                    by_fixture.setdefault(screen["fixture"], {}).setdefault(title, []).append((screen["flow"], int(m.group("total")), t))
+        seen = set()
+        for stop in screen["stops"]:
+            els = stop["elements"]
+            for i, el in enumerate(els):
+                t = texts(el)
+                for p in patterns:
+                    m = p.search(t)
+                    if not m or "total" not in m.groupdict() or not m.group("total"):
+                        continue
+                    titled = "title" in m.groupdict()
+                    title = m.group("title") if titled else title_line_before(els, i)
+                    if not title:
+                        if ("orphan", t) not in seen:
+                            seen.add(("orphan", t))
+                            report.fail("same-count-everywhere", f"{screen['fixture']}/{screen['flow']}",
+                                        f'"{t}" is a count line with no title line beside it ({stop["png"]})')
+                        break
+                    key = re.sub(r"\s+", " ", title).strip().lower()
+                    shown = t if titled else f"{title} / {t}"
+                    if (key, shown) not in seen:
+                        seen.add((key, shown))
+                        by_fixture.setdefault(screen["fixture"], {}).setdefault(key, []).append((screen["flow"], int(m.group("total")), shown))
+                    break
     for fixture, titles in by_fixture.items():
         for title, sightings in titles.items():
             totals = {s[1] for s in sightings}
@@ -243,7 +277,8 @@ def rule_durations_in_minutes(screens, cfg, report):
 
 
 def rule_no_stale_week(screens, cfg, report, fixtures):
-    """No "week N" text where N is not the fixture's current week."""
+    """No "week N" text where N is not the fixture's current week. Progression prose such as
+    "couch stretch at a bench from week 3" is allowed only through an explicit weekAllow pattern."""
     week_re = re.compile(cfg.get("weekPattern", r"\bweek (\d+)\b"), re.IGNORECASE)
     allow = [re.compile(p, re.IGNORECASE) for p in cfg.get("weekAllow", [])]
     for screen in screens:
@@ -258,13 +293,17 @@ def rule_no_stale_week(screens, cfg, report, fixtures):
                     report.fail("no-stale-week", f"{screen['fixture']}/{screen['flow']}", f'"{t}" mentions week {m.group(1)} during week {current}')
 
 
-def rule_rows_reachable(screens, cfg, report):
-    """Every row must be fully visible above any pinned bottom bar at some scroll stop."""
+def rule_rows_reachable(screens, cfg, report, scrolled=None):
+    """Every row must be fully visible above any pinned bottom bar at some scroll stop.
+    Only screens the tour scrolled to the bottom (scrolled = {(flow, screen)}) can prove that; a single
+    screenshot legitimately has rows below the fold. None = no manifest known, check every screen."""
     row_re = re.compile(cfg["rowIdentifier"]) if cfg.get("rowIdentifier") else None
     bars = cfg.get("pinnedBars", [])
     if not row_re or not bars:
         return
     for screen in screens:
+        if scrolled is not None and (screen["flow_name"], screen["screen"]) not in scrolled:
+            continue
         reachable = set()
         seen = {}
         for stop in screen["stops"]:
@@ -322,7 +361,7 @@ def rule_forbidden_text(screens, cfg, report):
                     report.fail("forbidden-text", f"{screen['fixture']}/{screen['flow']}", f'"{t}" matches forbidden pattern {p.pattern}')
 
 
-def run(tour_dir, cfg, fixtures):
+def run(tour_dir, cfg, fixtures, scrolled=None):
     try:
         stops, taps = load_tour(tour_dir)
     except TourInvalid as e:
@@ -335,7 +374,7 @@ def run(tour_dir, cfg, fixtures):
     rule_no_duplicate_titles(screens, cfg, report)
     rule_durations_in_minutes(screens, cfg, report)
     rule_no_stale_week(screens, cfg, report, fixtures)
-    rule_rows_reachable(screens, cfg, report)
+    rule_rows_reachable(screens, cfg, report, scrolled)
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)
@@ -348,11 +387,22 @@ def run(tour_dir, cfg, fixtures):
     }
 
 
-def fixtures_from_manifest(tour_json):
+def load_manifest(tour_json):
     if not tour_json or not Path(tour_json).exists():
-        return {}
-    manifest = json.loads(Path(tour_json).read_text(encoding="utf-8"))
-    return {f["name"]: f for f in manifest.get("fixtures", [])}
+        return None
+    return json.loads(Path(tour_json).read_text(encoding="utf-8"))
+
+
+def fixtures_from_manifest(manifest):
+    return {f["name"]: f for f in (manifest or {}).get("fixtures", [])}
+
+
+def scrolled_from_manifest(manifest):
+    """(flow, screen) pairs the tour scrolled to the bottom; screen names follow Tour.swift (shot or step<i>)."""
+    if manifest is None:
+        return None
+    return {(flow["name"], step["shot"] if step.get("shot") is not None else f"step{i}")
+            for flow in manifest.get("flows", []) for i, step in enumerate(flow.get("steps", [])) if step.get("scrollToBottom")}
 
 
 def main(argv=None):
@@ -363,7 +413,8 @@ def main(argv=None):
     ap.add_argument("--out", default="rules-report.json")
     args = ap.parse_args(argv)
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    result = run(args.tour, cfg, fixtures_from_manifest(args.manifest))
+    manifest = load_manifest(args.manifest)
+    result = run(args.tour, cfg, fixtures_from_manifest(manifest), scrolled_from_manifest(manifest))
     Path(args.out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"rules: {result['verdict']} — {result['stops']} stops, {len(result['screens'])} screens, checks {result['checked']}")
     for f in result["findings"]:

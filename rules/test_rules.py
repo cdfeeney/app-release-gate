@@ -1,5 +1,6 @@
 """Self-check for rules.py: a fake tour with one of each bug must fail every rule; a clean one must pass;
-an empty or unparsable tour must FAIL rather than pass on nothing.
+an empty or unparsable tour must FAIL rather than pass on nothing. The fake trees mirror the real
+two-line header layout ("Daily mobility (5 min)" title line, "5 min · 0 of 6" count line on the same row).
 
     python3 test_rules.py
 """
@@ -13,14 +14,15 @@ TREE = """Attributes: Application, 0x1, pid: 9, label: 'App'
 Element subtree:
  →Application, 0x1, pid: 9, label: 'App'
     Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}
-      StaticText, 0x3, {{16.0, 60.0}, {300.0, 20.0}}, label: 'Daily mobility (5 min) · 0 of 4 done'
       Other, 0x4, {{0.0, 100.0}, {393.0, 30.0}}, identifier: 'coach-block-title-b1', label: 'Warm-up'
-      StaticText, 0x5, {{16.0, 130.0}, {300.0, 20.0}}, label: '0 of 6 done'
+      StaticText, 0x3, {{16.0, 130.0}, {180.0, 24.0}}, label: 'Daily mobility (5 min)'
+      StaticText, 0x5, {{280.0, 136.0}, {80.0, 16.0}}, label: '5 min · 0 of 6'
       Button, 0x6, {{16.0, 160.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c0-s0', label: 'Leg swings, front-back', value: 'Not done', Selected, Disabled
       Button, 0x7, {{16.0, 210.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c1-s0-left', label: 'Side bridge', value: 'Not done'
       Button, 0x8, {{16.0, 260.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c1-s0-right', label: 'Side bridge', value: 'Not done'
-      Button, 0x9, {{16.0, 310.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c2-s0', label: 'Couch stretch (from week 3)', value: 'Not done'
+      Button, 0x9, {{16.0, 310.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c2-s0', label: 'Couch stretch (at a bench from week 3)', value: 'Not done'
       Button, 0x10, {{16.0, 360.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b1-c3-s0', label: 'Easy cardio (skip it after Zone 2)'
+      StaticText, 0x17, {{16.0, 400.0}, {300.0, 20.0}}, label: 'Week 1: find your weight'
       Other, 0x11, {{0.0, 420.0}, {393.0, 30.0}}, identifier: 'coach-block-title-b2', label: 'Warm-up'
       StaticText, 0x15, {{16.0, 440.0}, {300.0, 20.0}}, label: '0 of 1 done'
       StaticText, 0x12, {{16.0, 460.0}, {300.0, 20.0}}, label: 'Zone 2 · 1 set × 1,800 s'
@@ -34,22 +36,24 @@ Path to element:
 TODAY = """Element subtree:
  →Application, 0x1, pid: 9, label: 'App'
     Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}
-      StaticText, 0x3, {{16.0, 60.0}, {300.0, 20.0}}, label: 'Daily mobility (5 min) · 0 of 6 done'
+      StaticText, 0x3, {{16.0, 60.0}, {300.0, 20.0}}, label: 'Daily mobility (5 min) · 0 of 4 done'
 Path to element:
 """
 
 CONFIG = {
-    "countPatterns": [r"^(?P<title>.+?) · (?P<done>\d+) of (?P<total>\d+) done$"],
-    "rowCountPatterns": [r"^(?P<done>\d+) of (?P<total>\d+) done$"],
+    "countPatterns": [r"^(?P<title>.+?) · (?P<done>\d+) of (?P<total>\d+) done$", r"^\d+ min · (?P<done>\d+) of (?P<total>\d+)$"],
+    "rowCountPatterns": [r"^\d+ min · (?P<done>\d+) of (?P<total>\d+)$", r"^(?P<done>\d+) of (?P<total>\d+) done$"],
     "rowIdentifier": r"^coach-preparation-",
     "titleIdentifier": r"^coach-block-title-",
     "pinnedBars": ["coach-save-hint"],
     "instructionPatterns": [r"\(skip it"],
-    "weekAllow": [],
+    "weekAllow": [r"\bfrom week \d+\b"],
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
              "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text"}
+SCROLLED = {("session", "session"), ("today", "today")}
+WEEK2 = {"wed": {"week": 2}}
 
 
 def make_tour(tmp, session_tree, today_tree, taps, with_png=True):
@@ -67,6 +71,26 @@ def make_tour(tmp, session_tree, today_tree, taps, with_png=True):
     return out
 
 
+def run_tour(session_tree, today_tree, taps=(), config=CONFIG, fixtures=WEEK2, scrolled=SCROLLED):
+    with tempfile.TemporaryDirectory() as tmp:
+        out = make_tour(tmp, session_tree, today_tree, list(taps))
+        return rules.run(out, config, fixtures, scrolled)
+
+
+def findings(result, rule):
+    return [f for f in result["findings"] if f["rule"] == rule]
+
+
+def clean_trees():
+    clean = (TREE.replace("5 min · 0 of 6", "5 min · 0 of 5").replace("1,800 s", "30 min · rest 45 s")
+             .replace(" (skip it after Zone 2)", "").replace("Coach's note: nil", "Coach's note: easy day")
+             .replace("Week 1: find your weight", "Find your weight the first time")
+             .replace("coach-block-title-b2', label: 'Warm-up'", "coach-block-title-b2', label: 'Cool-down'")
+             .replace("{{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'",
+                      "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'"))
+    return clean, TODAY.replace("0 of 4 done", "0 of 5 done")
+
+
 def test_parser():
     els = rules.parse_tree(TREE)
     app = els[0]
@@ -81,32 +105,58 @@ def test_parser():
 
 
 def test_bad_tour_fails_every_rule():
-    with tempfile.TemporaryDirectory() as tmp:
-        out = make_tour(tmp, TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True}])
-        result = rules.run(out, CONFIG, {"wed": {"week": 2}})
+    result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True}])
     failed = {f["rule"] for f in result["findings"]}
     missing = ALL_RULES - failed
     assert not missing, f"rules that should have failed but passed: {missing}\n{json.dumps(result['findings'], indent=1)}"
     assert result["verdict"] == "FAIL"
-    count = next(f for f in result["findings"] if f["rule"] == "count-matches-rows")
+    count = findings(result, "count-matches-rows")[0]
     assert "states 6 but 5 rows" in count["message"], count
-    dup = next(f for f in result["findings"] if f["rule"] == "no-duplicate-titles")
+    same = findings(result, "same-count-everywhere")
+    assert len(same) == 1, same
+    assert "daily mobility (5 min)" in same[0]["message"] and "0 of 4 done" in same[0]["message"] and "5 min · 0 of 6" in same[0]["message"], same
+    dup = findings(result, "no-duplicate-titles")[0]
     assert "Warm-up" in dup["message"], dup
+    stale = findings(result, "no-stale-week")
+    assert len(stale) == 1 and "week 1" in stale[0]["message"], stale   # "from week 3" is allowed by weekAllow only
 
 
 def test_clean_tour_passes():
-    clean = (TREE.replace("0 of 6 done", "0 of 5 done").replace("1,800 s", "30 min · rest 45 s").replace(" (from week 3)", "")
-             .replace(" (skip it after Zone 2)", "").replace("Coach's note: nil", "Coach's note: easy day")
-             .replace("coach-block-title-b2', label: 'Warm-up'", "coach-block-title-b2', label: 'Cool-down'")
-             .replace("{{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'",
-                      "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'"))
-    today = TODAY.replace("0 of 6 done", "0 of 4 done")
-    with tempfile.TemporaryDirectory() as tmp:
-        out = make_tour(tmp, clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True}])
-        result = rules.run(out, CONFIG, {"wed": {"week": 2}})
+    clean, today = clean_trees()
+    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True}])
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
-    for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes", "rows-reachable", "controls-change-screen"):
+    for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
+                 "no-stale-week", "rows-reachable", "controls-change-screen"):
         assert result["checked"].get(rule, 0) >= 1, (rule, result["checked"])
+
+
+def test_week_mentions_are_strict_unless_allowed():
+    clean, today = clean_trees()
+    strict = run_tour(clean, today, config={**CONFIG, "weekAllow": []})
+    assert any("week 3" in f["message"] for f in findings(strict, "no-stale-week")), strict["findings"]   # without the allow, "from week 3" fails
+    header = run_tour(clean.replace("Daily mobility (5 min)'", "Daily mobility (5 min) · Week 3'"), today)
+    assert any("week 3" in f["message"] for f in findings(header, "no-stale-week")), header["findings"]  # a wrong-week header never passes
+
+
+def test_count_line_without_a_title_line_fails():
+    # the title line sits on another row: the count line is an orphan and must be a finding, not skipped
+    orphan = TREE.replace("StaticText, 0x3, {{16.0, 130.0}, {180.0, 24.0}}", "StaticText, 0x3, {{16.0, 20.0}, {180.0, 24.0}}")
+    result = run_tour(orphan, TODAY)
+    msgs = [f["message"] for f in findings(result, "same-count-everywhere")]
+    assert any("no title line beside it" in m and "5 min · 0 of 6" in m for m in msgs), msgs
+    assert not any("different totals" in m for m in msgs), msgs            # the pair is not silently merged either
+
+
+def test_rows_reachable_only_where_the_tour_scrolled():
+    everywhere = run_tour(TREE, TODAY, fixtures={}, scrolled=None)      # no manifest: check every screen
+    single_shots = run_tour(TREE, TODAY, fixtures={}, scrolled=set())   # nothing scrolled: a row below the fold is fine
+    assert findings(everywhere, "rows-reachable")
+    assert not findings(single_shots, "rows-reachable")
+    manifest = {"flows": [{"name": "today", "steps": [{"waitFor": "x"}, {"scrollToBottom": True, "shot": "today"}]},
+                          {"name": "session", "steps": [{"tap": "y"}, {"scrollToBottom": True}, {"shot": "after"}]},
+                          {"name": "plan", "steps": [{"scrollToBottom": True, "shot": ""}]}]}
+    assert rules.scrolled_from_manifest(manifest) == {("today", "today"), ("session", "step1"), ("plan", "")}  # same names as Tour.swift
+    assert rules.scrolled_from_manifest(None) is None
 
 
 def test_empty_or_broken_tour_fails():
@@ -127,5 +177,8 @@ if __name__ == "__main__":
     test_parser()
     test_bad_tour_fails_every_rule()
     test_clean_tour_passes()
+    test_week_mentions_are_strict_unless_allowed()
+    test_count_line_without_a_title_line_fails()
+    test_rows_reachable_only_where_the_tour_scrolled()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

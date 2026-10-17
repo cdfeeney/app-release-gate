@@ -84,7 +84,12 @@ final class TourTests: XCTestCase {
                 environment[key] = try fixtureJSON(fixture, relativeTo: manifestURL.deletingLastPathComponent())
             }
             app.launchEnvironment = environment
-            launch(app)
+            guard launch(app) else {
+                // Never tour a dead app: a capture of nothing would still count as a screen.
+                problems.append("\(fixture?.name ?? "default"): the app never reached the foreground after \(Self.launchAttempts) launches")
+                app.terminate()
+                continue
+            }
             for flow in manifest.flows {
                 run(flow, fixture: fixture?.name ?? "default", in: app)
             }
@@ -101,17 +106,19 @@ final class TourTests: XCTestCase {
     /// app … Timed out" (ConorHealth runs 1 and 4): a runner condition, not the app. Up to two such failures are
     /// expected and retried; the third attempt counts like any other failure.
     static let launchAttempts = 3
-    private func launch(_ app: XCUIApplication) {
+    static let launchFlake = "Timed out while acquiring background assertion"   // the runner's exact wording; a crash reads differently
+    private func launch(_ app: XCUIApplication) -> Bool {
         for attempt in 1..<Self.launchAttempts {
             let options = XCTExpectedFailure.Options()
             options.isStrict = false
-            options.issueMatcher = { $0.compactDescription.contains("background assertion") }
+            options.issueMatcher = { $0.compactDescription.contains(Self.launchFlake) }
             XCTExpectFailure("simulator launch flake, attempt \(attempt)", options: options) { app.launch() }
-            if app.state == .runningForeground { return }
+            if app.state == .runningForeground { return true }
             app.terminate()
             Thread.sleep(forTimeInterval: 5)
         }
         app.launch()
+        return app.state == .runningForeground
     }
 
     // MARK: steps

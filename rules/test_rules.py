@@ -27,6 +27,8 @@ Element subtree:
       StaticText, 0x15, {{16.0, 440.0}, {300.0, 20.0}}, label: '0 of 1 done'
       StaticText, 0x12, {{16.0, 460.0}, {300.0, 20.0}}, label: 'Zone 2 · 1 set × 1,800 s'
       StaticText, 0x16, {{16.0, 480.0}, {300.0, 20.0}}, label: 'Coach's note: nil'
+      Button, 0x18, {{16.0, 500.0}, {120.0, 44.0}}, identifier: 'coach-timer-start-b1-c2-s0', label: 'Start hold'
+      Button, 0x19, {{16.0, 550.0}, {80.0, 44.0}}, identifier: 'coach-select-weight-b3-e1-p0', label: 'Use 30 lb as work set 1'
       Button, 0x13, {{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0', label: 'Hidden row'
       StaticText, 0x14, {{16.0, 790.0}, {300.0, 20.0}}, identifier: 'coach-save-hint', label: 'Answer pain to save'
 Path to element:
@@ -48,10 +50,14 @@ CONFIG = {
     "pinnedBars": ["coach-save-hint"],
     "instructionPatterns": [r"\(skip it"],
     "weekAllow": [r"\bfrom week \d+\b"],
+    "forbiddenIdentifiers": [r"-(left|right)$", r"^coach-(timer|rest-timer|move-timer)-start-"],
+    "fixtures": {"wed": {"forbiddenIdentifiers": [r"^coach-select-weight-b3-e1-"]}},
+    "maxTapMillis": 1500,
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
-             "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text"}
+             "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text",
+             "forbidden-identifiers", "taps-respond"}
 SCROLLED = {("session", "session"), ("today", "today")}
 WEEK2 = {"wed": {"week": 2}}
 
@@ -87,7 +93,9 @@ def clean_trees():
              .replace("Week 1: find your weight", "Find your weight the first time")
              .replace("coach-block-title-b2', label: 'Warm-up'", "coach-block-title-b2', label: 'Cool-down'")
              .replace("{{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'",
-                      "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'"))
+                      "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'")
+             .replace("coach-timer-start-b1-c2-s0", "coach-video-b1-c2").replace("coach-select-weight-b3-e1-p0", "coach-ramp-load-b3-e1-p0")
+             .replace("coach-preparation-b1-c1-s0-left", "coach-preparation-b1-c1-s0").replace("coach-preparation-b1-c1-s0-right", "coach-preparation-b1-c4-s0"))
     return clean, TODAY.replace("0 of 4 done", "0 of 5 done")
 
 
@@ -105,7 +113,8 @@ def test_parser():
 
 
 def test_bad_tour_fails_every_rule():
-    result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True}])
+    result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True},
+                                    {"identifier": "coach-slow", "step": "t", "changed": True, "expected": True, "ms": 3400}])
     failed = {f["rule"] for f in result["findings"]}
     missing = ALL_RULES - failed
     assert not missing, f"rules that should have failed but passed: {missing}\n{json.dumps(result['findings'], indent=1)}"
@@ -119,15 +128,39 @@ def test_bad_tour_fails_every_rule():
     assert "Warm-up" in dup["message"], dup
     stale = findings(result, "no-stale-week")
     assert len(stale) == 1 and "week 1" in stale[0]["message"], stale   # "from week 3" is allowed by weekAllow only
+    forbidden = sorted(f["message"].split('"')[1] for f in findings(result, "forbidden-identifiers"))
+    assert forbidden == ["coach-preparation-b1-c1-s0-left", "coach-preparation-b1-c1-s0-right",
+                         "coach-select-weight-b3-e1-p0", "coach-timer-start-b1-c2-s0"], forbidden
+    slow = findings(result, "taps-respond")
+    assert len(slow) == 1 and "coach-slow" in slow[0]["message"] and "3400 ms" in slow[0]["message"], slow
 
 
 def test_clean_tour_passes():
     clean, today = clean_trees()
-    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True}])
+    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 420}])
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
     for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
-                 "no-stale-week", "rows-reachable", "controls-change-screen"):
+                 "no-stale-week", "rows-reachable", "controls-change-screen", "forbidden-identifiers", "taps-respond"):
         assert result["checked"].get(rule, 0) >= 1, (rule, result["checked"])
+
+
+def test_fixture_rules_apply_to_that_fixture_only():
+    # the chip grid is forbidden on "wed" only (config above); the same tree under another fixture passes that pattern
+    other = run_tour(TREE, TODAY, config={**CONFIG, "fixtures": {"thu": CONFIG["fixtures"]["wed"]}})
+    assert not any("coach-select-weight" in f["message"] for f in findings(other, "forbidden-identifiers")), other["findings"]
+    assert any("coach-select-weight" in f["message"] for f in findings(run_tour(TREE, TODAY), "forbidden-identifiers"))
+    text = run_tour(TREE, TODAY, config={**CONFIG, "fixtures": {"wed": {"forbiddenText": [r"Hidden row"]}}})
+    assert any("Hidden row" in f["message"] for f in findings(text, "forbidden-text")), text["findings"]
+
+
+def test_taps_without_timing_are_not_judged():
+    clean, today = clean_trees()
+    result = run_tour(clean, today, [{"identifier": "old", "step": "s", "changed": True, "expected": True}])   # a tour from before `ms`
+    assert result["checked"].get("taps-respond", 0) == 0 and not findings(result, "taps-respond")
+    limit = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 1500}])
+    assert not findings(limit, "taps-respond"), "the limit itself passes"
+    over = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 1501}], config={**CONFIG, "maxTapMillis": 1500})
+    assert findings(over, "taps-respond")
 
 
 def test_week_mentions_are_strict_unless_allowed():
@@ -180,5 +213,7 @@ if __name__ == "__main__":
     test_week_mentions_are_strict_unless_allowed()
     test_count_line_without_a_title_line_fails()
     test_rows_reachable_only_where_the_tour_scrolled()
+    test_fixture_rules_apply_to_that_fixture_only()
+    test_taps_without_timing_are_not_judged()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

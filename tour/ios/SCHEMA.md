@@ -28,7 +28,8 @@
 ```
 
 Output per stop: `NNN-<fixture>-<flow>-<name>.png` and `.tree.txt` (the accessibility tree), listed in
-`index.json`; every tap in `taps.json` with `changed: true|false`; `summary.json` with problems (missing
+`index.json`; every tap in `taps.json` with `changed: true|false` and `ms` (milliseconds from the tap until the
+tree first changed; the tap call itself waits for the app to go idle, so a main-thread stall is counted); `summary.json` with problems (missing
 identifiers, taps that changed nothing). A non-optional problem fails the tour.
 
 Paths: `TOUR_PATH`/`TOUR_OUT` from the environment (xcodebuild passes `TEST_RUNNER_TOUR_PATH` as

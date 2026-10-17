@@ -17,5 +17,8 @@
   "weekPattern": "\\bweek (\\d+)\\b",
   "weekAllow": ["\\bfrom week \\d+\\b"],
   "instructionPatterns": ["\\(skip it", "\\(week \\d+:"],
-  "forbiddenText": ["Optional\\(", "\\bnil\\b", "\\bNaN\\b", "\\bundefined\\b"]
+  "forbiddenText": ["Optional\\(", "\\bnil\\b", "\\bNaN\\b", "\\bundefined\\b"],
+  "forbiddenIdentifiers": ["-(left|right)$", "^coach-(timer|rest-timer|move-timer)-start-", "^coach-select-weight-"],
+  "fixtures": {"fri": {"forbiddenIdentifiers": ["^coach-preparation-b2-e0-p\\d+-s0-$"]}},
+  "maxTapMillis": 1500
 }

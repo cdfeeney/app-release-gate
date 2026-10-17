@@ -352,16 +352,59 @@ def rule_instruction_not_live(screens, cfg, report):
                     report.fail("instruction-not-live", f"{screen['fixture']}/{screen['flow']}", f'"{t}" is an instruction but is a {el["type"]}')
 
 
+def fixture_patterns(cfg, fixture, key, default=()):
+    """Patterns for one rule: the global list plus the fixture's own ("fixtures": {"<name>": {"<key>": [...]}}),
+    so a bug that only shows with certain data (Find rows on an exercise the fixture's history already weighs)
+    is a rule on that fixture alone."""
+    own = cfg.get("fixtures", {}).get(fixture, {}).get(key, [])
+    return [re.compile(p) for p in list(cfg.get(key, list(default))) + list(own)]
+
+
 def rule_forbidden_text(screens, cfg, report):
     """App-specific text that must never appear (placeholders, debug strings, "nil", "Optional(")."""
-    patterns = [re.compile(p) for p in cfg.get("forbiddenText", [r"Optional\(", r"\bnil\b", r"\bNaN\b", r"\bundefined\b"])]
+    default = (r"Optional\(", r"\bnil\b", r"\bNaN\b", r"\bundefined\b")
     for screen in screens:
+        patterns = fixture_patterns(cfg, screen["fixture"], "forbiddenText", default)
         for el in screen["elements"]:
             t = texts(el)
             for p in patterns:
                 report.count("forbidden-text")
                 if p.search(t):
                     report.fail("forbidden-text", f"{screen['fixture']}/{screen['flow']}", f'"{t}" matches forbidden pattern {p.pattern}')
+
+
+def rule_forbidden_identifiers(screens, cfg, report):
+    """Controls that must never be on screen, by accessibility identifier: per-side rows, in-app hold timers,
+    a weight-chip grid (owner 10-16/10-17). A per-fixture list catches controls that are wrong only with that
+    fixture's data (Find rows on an exercise whose weight the history already knows)."""
+    for screen in screens:
+        patterns = fixture_patterns(cfg, screen["fixture"], "forbiddenIdentifiers")
+        if not patterns:
+            continue
+        reported = set()
+        for el in screen["elements"]:
+            ident = el["identifier"]
+            if not ident:
+                continue
+            for p in patterns:
+                report.count("forbidden-identifiers")
+                if p.search(ident) and (ident, p.pattern) not in reported:
+                    reported.add((ident, p.pattern))
+                    report.fail("forbidden-identifiers", f"{screen['fixture']}/{screen['flow']}",
+                                f'{el["type"]} "{ident}" ({texts(el)[:60]}) matches forbidden identifier {p.pattern}')
+
+
+def rule_taps_respond(taps, cfg, report):
+    """Every tap must show its effect within maxTapMillis (owner 10-17: "buttons take three or four seconds").
+    Tour.swift records `ms` from the tap until the tree first changed; older tours without it are not checked."""
+    limit = int(cfg.get("maxTapMillis", 1500))
+    for tap in taps:
+        if "ms" not in tap:
+            continue
+        report.count("taps-respond")
+        if int(tap["ms"]) > limit:
+            report.fail("taps-respond", tap.get("step", ""),
+                        f'tapping {tap.get("identifier")} took {tap["ms"]} ms to change the screen (limit {limit} ms)')
 
 
 def run(tour_dir, cfg, fixtures, scrolled=None):
@@ -381,6 +424,8 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)
+    rule_forbidden_identifiers(screens, cfg, report)
+    rule_taps_respond(taps, cfg, report)
     return {
         "verdict": "PASS" if not report.findings else "FAIL",
         "screens": [f"{s['fixture']}/{s['flow']}" for s in screens],

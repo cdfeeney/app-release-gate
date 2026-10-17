@@ -154,13 +154,17 @@ final class TourTests: XCTestCase {
             return
         }
         let before = normalized(app.debugDescription)
+        // tap() returns once the app is idle again, so a main-thread stall after the tap lands in `ms`
+        // (owner 10-17: "buttons take three or four seconds"); the rules compare it with maxTapMillis.
+        let started = Date()
         target.tap()
         var changed = false
         for _ in 0..<12 {
             if normalized(app.debugDescription) != before { changed = true; break }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange])
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms])
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
     }
 

@@ -11,7 +11,10 @@ import XCTest
 // no LLM, no synthetic taps; XCUITest drives real controls.
 //
 // Paths: TOUR_PATH / TOUR_OUT come from the environment (xcodebuild passes TEST_RUNNER_TOUR_PATH as
-// TOUR_PATH); otherwise Gate/tour.json and Gate/out beside this file.
+// TOUR_PATH); otherwise Gate/tour.json and Gate/out beside this file. On the simulator the test
+// runner reads and writes host paths directly (the same mechanism snapshot-testing libraries use
+// to write reference images beside the test file via #filePath).
+@MainActor
 final class TourTests: XCTestCase {
     struct Manifest: Decodable {
         var launchArguments: [String]?
@@ -45,6 +48,8 @@ final class TourTests: XCTestCase {
         var sleep: Double?
         var optional: Bool?
     }
+
+    private static let maxScrollStops = 25
 
     private var outDir: URL!
     private var shotIndex = 0
@@ -80,9 +85,10 @@ final class TourTests: XCTestCase {
             }
             app.terminate()
         }
+        if index.isEmpty { problems.append("the tour captured no screens") }
         try write(json: index, name: "index.json")
         try write(json: taps, name: "taps.json")
-        try write(json: ["problems": problems, "fixtures": fixtures.map { $0?.name ?? "default" }], name: "summary.json")
+        try write(json: ["problems": problems, "fixtures": fixtures.map { $0?.name ?? "default" }, "screens": index.count], name: "summary.json")
         XCTAssertTrue(problems.isEmpty, problems.joined(separator: "\n"))
     }
 
@@ -98,16 +104,20 @@ final class TourTests: XCTestCase {
             if let swipe = step.swipe {
                 if swipe == "down" { app.swipeDown(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
             }
-            if let id = step.tap ?? step.tapMatching.flatMap({ firstIdentifier(matching: $0, in: app) }) {
-                tap(id, label: label, expectChange: step.expectChange ?? true, optional: step.optional, in: app)
-                if let text = step.typeText { app.typeText(text) }
-            } else if step.tapMatching != nil {
-                note("\(label): no element matches \(step.tapMatching!)", optional: step.optional)
+            var target = step.tap
+            if target == nil, let pattern = step.tapMatching {
+                target = firstIdentifier(matching: pattern, in: app)
+                if target == nil { note("\(label): no element matches \(pattern)", optional: step.optional) }
             }
+            if let id = target {
+                tap(id, label: label, expectChange: step.expectChange ?? true, optional: step.optional, in: app)
+            }
+            if let text = step.typeText { app.typeText(text) }
+            let screen = step.shot ?? "shot"
             if step.scrollToBottom == true {
-                scrollToBottom(fixture: fixture, flow: flow.name, name: step.shot ?? "scroll", in: app)
-            } else if let name = step.shot {
-                capture(fixture: fixture, flow: flow.name, name: name, in: app)
+                scrollToBottom(fixture: fixture, flow: flow.name, screen: screen, label: label, in: app)
+            } else if step.shot != nil {
+                capture(fixture: fixture, flow: flow.name, screen: screen, name: screen, in: app)
             }
         }
     }
@@ -130,28 +140,35 @@ final class TourTests: XCTestCase {
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
     }
 
-    private func scrollToBottom(fixture: String, flow: String, name: String, in app: XCUIApplication) {
+    /// Capture, swipe up, capture again, until the tree stops changing. Every state that exists is captured.
+    private func scrollToBottom(fixture: String, flow: String, screen: String, label: String, in app: XCUIApplication) {
         var last = ""
-        for position in 1...20 {
-            capture(fixture: fixture, flow: flow, name: "\(name)-\(String(format: "%02d", position))", in: app)
+        var settled = false
+        for position in 1...Self.maxScrollStops {
+            capture(fixture: fixture, flow: flow, screen: screen, name: "\(screen)-\(String(format: "%02d", position))", in: app)
             let now = normalized(app.debugDescription)
-            if now == last { break }
+            if now == last { settled = true; break }
             last = now
             app.swipeUp(velocity: .slow)
             Thread.sleep(forTimeInterval: 0.4)
         }
+        if !settled { note("\(label): \(screen) never stopped scrolling after \(Self.maxScrollStops) swipes; bottom not captured", optional: false) }
     }
 
-    private func capture(fixture: String, flow: String, name: String, in app: XCUIApplication) {
+    private func capture(fixture: String, flow: String, screen: String, name: String, in app: XCUIApplication) {
         shotIndex += 1
         let base = String(format: "%03d", shotIndex) + "-\(fixture)-\(flow)-\(name)"
+        let png = XCUIScreen.main.screenshot().pngRepresentation
+        let tree = app.debugDescription
         do {
-            try XCUIScreen.main.screenshot().pngRepresentation.write(to: outDir.appendingPathComponent(base + ".png"))
-            try app.debugDescription.write(to: outDir.appendingPathComponent(base + ".tree.txt"), atomically: true, encoding: .utf8)
+            try png.write(to: outDir.appendingPathComponent(base + ".png"))
+            try tree.write(to: outDir.appendingPathComponent(base + ".tree.txt"), atomically: true, encoding: .utf8)
         } catch {
             note("capture \(base) failed: \(error)", optional: false)
         }
-        index.append(["n": shotIndex, "fixture": fixture, "flow": flow, "name": name, "png": base + ".png", "tree": base + ".tree.txt",
+        if png.isEmpty || tree.isEmpty { note("capture \(base) is empty", optional: false) }
+        index.append(["n": shotIndex, "fixture": fixture, "flow": flow, "screen": screen, "name": name,
+                      "png": base + ".png", "tree": base + ".tree.txt",
                       "window": ["width": Double(app.frame.width), "height": Double(app.frame.height)]])
     }
 

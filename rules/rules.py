@@ -15,11 +15,25 @@ import sys
 from pathlib import Path
 
 LINE = re.compile(
-    r"^(?P<indent>\s*)→?(?P<type>[A-Za-z]+), 0x[0-9a-fA-F]+,(?: pid: \d+,)?"
-    r"(?: \{\{(?P<x>-?[\d.]+), (?P<y>-?[\d.]+)\}, \{(?P<w>-?[\d.]+), (?P<h>-?[\d.]+)\}\})?(?P<rest>.*)$"
+    r"^(?P<indent>\s*)→?(?P<type>[A-Za-z]+), 0x[0-9a-fA-F]+(?:, pid: \d+)?"
+    r"(?:, \{\{(?P<x>-?[\d.]+), (?P<y>-?[\d.]+)\}, \{(?P<w>-?[\d.]+), (?P<h>-?[\d.]+)\}\})?(?P<rest>.*)$"
 )
 ATTR = re.compile(r", (identifier|label|value|placeholderValue): '")
-FLAGS = ("Selected", "Disabled", "Focused")
+FLAGS = ("Selected", "Disabled", "Focused", "Enabled")
+
+
+def strip_flags(chunk):
+    """Remove every trailing ', Selected'/', Disabled'... from an attribute chunk; return (chunk, flags)."""
+    flags = []
+    changed = True
+    while changed:
+        changed = False
+        for flag in FLAGS:
+            if chunk.endswith(", " + flag):
+                chunk = chunk[: -len(flag) - 2]
+                flags.append(flag)
+                changed = True
+    return chunk, flags
 
 
 def parse_tree(text):
@@ -37,15 +51,13 @@ def parse_tree(text):
         m = LINE.match(raw)
         if not m:
             continue
-        rest = m.group("rest") or ""
+        rest = (m.group("rest") or "").rstrip()
+        rest, flags = strip_flags(rest)
         attrs = {"identifier": "", "label": "", "value": "", "placeholderValue": ""}
         marks = list(ATTR.finditer(rest))
         for i, mark in enumerate(marks):
             end = marks[i + 1].start() if i + 1 < len(marks) else len(rest)
             chunk = rest[mark.end():end]
-            for flag in FLAGS:
-                if chunk.endswith(", " + flag):
-                    chunk = chunk[: -len(flag) - 2]
             attrs[mark.group(1)] = chunk[:-1] if chunk.endswith("'") else chunk
         frame = None
         if m.group("x") is not None:
@@ -54,20 +66,38 @@ def parse_tree(text):
             "type": m.group("type"),
             "depth": len(m.group("indent")),
             "frame": frame,
-            "flags": [f for f in FLAGS if rest.rstrip().endswith(f)],
+            "flags": flags,
             **attrs,
         })
     return elements
 
 
+class TourInvalid(Exception):
+    """The tour output cannot be trusted; the gate must FAIL rather than pass on nothing."""
+
+
 def load_tour(tour_dir):
     tour = Path(tour_dir)
-    index = json.loads((tour / "index.json").read_text(encoding="utf-8"))
+    index_path = tour / "index.json"
+    if not index_path.exists():
+        raise TourInvalid("index.json missing")
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    if not index:
+        raise TourInvalid("the tour captured no screens")
     taps = json.loads((tour / "taps.json").read_text(encoding="utf-8")) if (tour / "taps.json").exists() else []
     stops = []
     for entry in index:
-        text = (tour / entry["tree"]).read_text(encoding="utf-8", errors="replace")
-        stops.append({**entry, "elements": parse_tree(text)})
+        png = tour / entry["png"]
+        tree_path = tour / entry["tree"]
+        if not png.exists() or png.stat().st_size == 0:
+            raise TourInvalid(f"{entry['png']} missing or empty")
+        if not tree_path.exists():
+            raise TourInvalid(f"{entry['tree']} missing")
+        text = tree_path.read_text(encoding="utf-8", errors="replace")
+        elements = parse_tree(text)
+        if "Element subtree:" not in text or len(elements) < 2:
+            raise TourInvalid(f"{entry['tree']} is not a parsable accessibility tree ({len(elements)} elements)")
+        stops.append({**entry, "elements": elements})
     return stops, taps
 
 
@@ -76,11 +106,11 @@ def element_key(el):
 
 
 def screen_union(stops):
-    """One ordered, de-duplicated element list per fixture+flow (union of its scroll stops)."""
+    """One ordered, de-duplicated element list per fixture+flow+screen (union of its scroll stops)."""
     screens = {}
     for stop in stops:
-        key = (stop["fixture"], stop["flow"])
-        screen = screens.setdefault(key, {"fixture": stop["fixture"], "flow": stop["flow"], "elements": [], "seen": set(), "stops": []})
+        key = (stop["fixture"], stop["flow"], stop.get("screen", stop["name"]))
+        screen = screens.setdefault(key, {"fixture": stop["fixture"], "flow": f"{stop['flow']}/{key[2]}", "elements": [], "seen": set(), "stops": []})
         screen["stops"].append(stop)
         for el in stop["elements"]:
             k = element_key(el)
@@ -170,28 +200,31 @@ def rule_same_count_everywhere(screens, cfg, report):
 
 
 def rule_no_duplicate_titles(screens, cfg, report):
-    """No two blocks on one screen share a title."""
+    """No two blocks on one screen share a title. Checked per scroll stop, where duplicates are literal."""
     title_re = re.compile(cfg["titleIdentifier"]) if cfg.get("titleIdentifier") else None
     title_pattern = re.compile(cfg["titlePattern"]) if cfg.get("titlePattern") else None
     if not title_re and not title_pattern:
         return
     for screen in screens:
-        seen = {}
-        for el in screen["elements"]:
-            if title_re and el["identifier"] and title_re.search(el["identifier"]):
-                title = el["label"]
-            elif title_pattern and el["type"] == "StaticText":
-                m = title_pattern.search(el["label"])
-                title = m.group("title") if m else None
-            else:
-                title = None
-            if not title:
-                continue
-            key = re.sub(r"\s+", " ", title).strip().lower()
-            report.count("no-duplicate-titles")
-            if key in seen and seen[key] != el["identifier"]:
-                report.fail("no-duplicate-titles", f"{screen['fixture']}/{screen['flow']}", f'two blocks titled "{title}"')
-            seen.setdefault(key, el["identifier"])
+        reported = set()
+        for stop in screen["stops"]:
+            seen = {}
+            for el in stop["elements"]:
+                if title_re and el["identifier"] and title_re.search(el["identifier"]):
+                    title = el["label"]
+                elif title_pattern and el["type"] == "StaticText":
+                    m = title_pattern.search(el["label"])
+                    title = m.group("title") if m else None
+                else:
+                    title = None
+                if not title:
+                    continue
+                key = re.sub(r"\s+", " ", title).strip().lower()
+                report.count("no-duplicate-titles")
+                seen[key] = seen.get(key, 0) + 1
+                if seen[key] == 2 and key not in reported:
+                    reported.add(key)
+                    report.fail("no-duplicate-titles", f"{screen['fixture']}/{screen['flow']}", f'two blocks titled "{title}" ({stop["png"]})')
 
 
 def rule_durations_in_minutes(screens, cfg, report):
@@ -290,7 +323,11 @@ def rule_forbidden_text(screens, cfg, report):
 
 
 def run(tour_dir, cfg, fixtures):
-    stops, taps = load_tour(tour_dir)
+    try:
+        stops, taps = load_tour(tour_dir)
+    except TourInvalid as e:
+        return {"verdict": "FAIL", "screens": [], "stops": 0, "checked": {},
+                "findings": [{"rule": "tour-valid", "where": str(tour_dir), "message": str(e)}]}
     screens = screen_union(stops)
     report = Report()
     rule_count_matches_rows(screens, cfg, report)

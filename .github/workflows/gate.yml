@@ -97,8 +97,8 @@ jobs:
           TEST_RUNNER_TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
           TEST_RUNNER_TOUR_OUT: ${{ runner.temp }}/tour
         run: |
-          set -o pipefail
           mkdir -p "$RUNNER_TEMP/tour"
+          set +e
           xcodebuild ${{ inputs.container }} -scheme "${{ inputs.scheme }}" -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
@@ -106,14 +106,20 @@ jobs:
             -only-testing:"${{ inputs.ui_test_target }}/TourTests" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
-            test 2>&1 | tee "$RUNNER_TEMP/tour/xcodebuild.log" | grep -E "error:|Test Case|\*\* TEST|failed|passed" || true
-          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json"; tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
-          python3 - "$RUNNER_TEMP/tour/summary.json" <<'EOF'
-          import json, sys
-          s = json.load(open(sys.argv[1]))
-          print(f"fixtures: {s.get('fixtures')}; problems: {len(s.get('problems', []))}")
-          for p in s.get("problems", []): print("  TOUR PROBLEM:", p)
-          sys.exit(1 if s.get("problems") else 0)
+            test > "$RUNNER_TEMP/tour/xcodebuild.log" 2>&1
+          XCODEBUILD_STATUS=$?
+          set -e
+          grep -E "error:|Test Case|\*\* TEST|TourTests" "$RUNNER_TEMP/tour/xcodebuild.log" | tail -40 || true
+          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json (xcodebuild exit $XCODEBUILD_STATUS)"; tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
+          python3 - "$RUNNER_TEMP/tour" "$XCODEBUILD_STATUS" <<'EOF'
+          import json, os, sys
+          tour, status = sys.argv[1], int(sys.argv[2])
+          index = json.load(open(os.path.join(tour, "index.json")))
+          summary = json.load(open(os.path.join(tour, "summary.json")))
+          bad = [e["png"] for e in index if not (os.path.getsize(os.path.join(tour, e["png"])) > 0 and os.path.getsize(os.path.join(tour, e["tree"])) > 0)]
+          print(f"xcodebuild exit {status}; fixtures {summary.get('fixtures')}; {len(index)} screens; problems {len(summary.get('problems', []))}; empty captures {bad}")
+          for p in summary.get("problems", []): print("  TOUR PROBLEM:", p)
+          sys.exit(0 if status == 0 and index and not bad and not summary.get("problems") else 1)
           EOF
 
       - name: Upload the tour

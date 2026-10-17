@@ -30,15 +30,34 @@ def build_prompt(tour, profile, rules_report):
 
 
 def extract_verdict(text):
+    """The LAST fenced JSON block must be the verdict, with the contracted shape; anything else is no verdict."""
     blocks = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-    for block in reversed(blocks):
-        try:
-            obj = json.loads(block)
-        except json.JSONDecodeError:
-            continue
-        if obj.get("verdict") in ("PASS", "FAIL"):
-            return obj
-    return None
+    if not blocks:
+        return None
+    try:
+        obj = json.loads(blocks[-1])
+    except json.JSONDecodeError:
+        return None
+    if obj.get("verdict") not in ("PASS", "FAIL") or not isinstance(obj.get("findings"), list):
+        return None
+    if not isinstance(obj.get("screens_read"), int):
+        return None
+    for f in obj["findings"]:
+        if not isinstance(f, dict) or f.get("severity") not in ("BLOCKER", "HIGH", "MEDIUM", "LOW"):
+            return None
+    return obj
+
+
+def consistent(verdict, expected_screens):
+    """Derive the verdict from the contract, never from the model's word alone."""
+    problems = []
+    if expected_screens < 1:
+        problems.append("no screenshots to read")
+    if verdict["screens_read"] != expected_screens:
+        problems.append(f"reader read {verdict['screens_read']} of {expected_screens} screenshots")
+    if any(f["severity"] in ("BLOCKER", "HIGH") for f in verdict["findings"]):
+        problems.append("BLOCKER/HIGH findings present")
+    return problems
 
 
 def main(argv=None):
@@ -55,20 +74,23 @@ def main(argv=None):
     cmd = [args.claude, "-p", prompt, "--allowedTools", "Read,Glob", "--no-session-persistence", "--output-format", "text"]
     if args.model:
         cmd += ["--model", args.model]
+    returncode = None
     try:
         proc = subprocess.run(cmd, cwd=args.tour, capture_output=True, text=True, timeout=1500)
-        text = proc.stdout
-        err = proc.stderr[-2000:]
+        text, err, returncode = proc.stdout, proc.stderr[-2000:], proc.returncode
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         text, err = "", str(e)
 
-    verdict = extract_verdict(text)
-    result = verdict or {"verdict": "FAIL", "screens_read": 0,
-                         "findings": [{"severity": "BLOCKER", "screen": "", "what": "reader produced no verdict: " + (err or text[-500:])}]}
     expected = len(list(Path(args.tour).glob("*.png")))
-    if verdict and int(verdict.get("screens_read", 0)) < expected:
-        result["verdict"] = "FAIL"
-        result.setdefault("findings", []).append({"severity": "BLOCKER", "screen": "", "what": f"reader read {verdict.get('screens_read')} of {expected} screenshots"})
+    verdict = extract_verdict(text) if returncode == 0 else None
+    if verdict is None:
+        why = "reader produced no valid verdict" + (f" (exit {returncode})" if returncode not in (None, 0) else "") + ": " + (err or text[-500:])
+        result = {"verdict": "FAIL", "screens_read": 0, "findings": [{"severity": "BLOCKER", "screen": "", "what": why}]}
+    else:
+        result = dict(verdict)
+        for problem in consistent(verdict, expected):
+            result["verdict"] = "FAIL"
+            result["findings"].append({"severity": "BLOCKER", "screen": "", "what": problem})
     result["expected_screens"] = expected
     Path(args.out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     Path(args.out).with_suffix(".transcript.txt").write_text(text, encoding="utf-8")

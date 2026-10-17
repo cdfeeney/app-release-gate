@@ -14,6 +14,6 @@
   "durationAllow": [],
   "weekPattern": "\\bweek (\\d+)\\b",
   "weekAllow": [],
-  "instructionPatterns": ["skip it", "\\(week \\d+:"],
+  "instructionPatterns": ["\\(skip it", "\\(week \\d+:"],
   "forbiddenText": ["Optional\\(", "\\bnil\\b", "\\bNaN\\b", "\\bundefined\\b"]
 }

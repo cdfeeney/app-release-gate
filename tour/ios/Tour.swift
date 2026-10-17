@@ -204,12 +204,21 @@ final class TourTests: XCTestCase {
     /// harmless tap on the centre of the navigation bar is timed: XCUITest waits for the app to be idle before it
     /// dispatches any event, so that wait is the stall the next real tap would have felt. Nil without a navigation bar.
     static let settleDelay: TimeInterval = 0.8
+    private static let controlTypes: [XCUIElement.ElementType] = [.button, .searchField, .textField, .segmentedControl, .menuButton, .popUpButton, .link]
     private func settle(in app: XCUIApplication) -> Int? {
-        let bar = app.navigationBars.firstMatch
-        guard bar.exists else { return nil }
         Thread.sleep(forTimeInterval: Self.settleDelay)
+        // Re-resolved after the delay: the tap may have replaced the bar. Only a blank point is tapped, never a
+        // control in the bar (a principal button or search field would act, and that act would count as a change).
+        let bar = app.navigationBars.firstMatch
+        guard bar.exists, bar.isHittable else { return nil }
+        let frame = bar.frame
+        let controls = bar.descendants(matching: .any).allElementsBoundByIndex
+            .filter { Self.controlTypes.contains($0.elementType) && $0.exists }.map(\.frame)
+        let y = frame.midY
+        guard let x = [0.5, 0.38, 0.62, 0.26, 0.74].map({ frame.minX + frame.width * $0 })
+                .first(where: { x in !controls.contains { $0.insetBy(dx: -8, dy: -8).contains(CGPoint(x: x, y: y)) } }) else { return nil }
         let started = Date()
-        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: y)).tap()
         return Int(Date().timeIntervalSince(started) * 1000)
     }
 

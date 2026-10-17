@@ -166,7 +166,7 @@ def test_taps_without_timing_fail_closed():
     # idleMs (the app's own response) is judged when present; a slow tree snapshot in ms is not the app's fault
     idle = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 400}])
     assert not findings(idle, "taps-respond"), idle["findings"]
-    stall = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 2200}])
+    stall = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 2200, "settleMs": 120}])
     assert any("2200 ms to go idle" in f["message"] for f in findings(stall, "taps-respond")), stall["findings"]
     # work deferred past the tap (a debounced write) shows in the settle probe and counts too
     later = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 900, "idleMs": 300, "settleMs": 1900}])

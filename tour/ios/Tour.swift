@@ -159,9 +159,13 @@ final class TourTests: XCTestCase {
         let started = Date()
         target.tap()
         var changed = false
-        for _ in 0..<12 {
-            if normalized(app.debugDescription) != before { changed = true; break }
-            Thread.sleep(forTimeInterval: 0.25)
+        if expectChange {
+            for _ in 0..<12 {
+                if normalized(app.debugDescription) != before { changed = true; break }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+        } else {
+            changed = normalized(app.debugDescription) != before   // one look: a tap expected to change nothing is not polled for 3 s
         }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms])

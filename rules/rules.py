@@ -84,7 +84,9 @@ def load_tour(tour_dir):
     index = json.loads(index_path.read_text(encoding="utf-8"))
     if not index:
         raise TourInvalid("the tour captured no screens")
-    taps = json.loads((tour / "taps.json").read_text(encoding="utf-8")) if (tour / "taps.json").exists() else []
+    if not (tour / "taps.json").exists():
+        raise TourInvalid("taps.json missing")   # Tour.swift always writes it, even with no taps
+    taps = json.loads((tour / "taps.json").read_text(encoding="utf-8"))
     stops = []
     for entry in index:
         png = tour / entry["png"]
@@ -396,12 +398,17 @@ def rule_forbidden_identifiers(screens, cfg, report):
 
 def rule_taps_respond(taps, cfg, report):
     """Every tap must show its effect within maxTapMillis (owner 10-17: "buttons take three or four seconds").
-    Tour.swift records `ms` from the tap until the tree first changed; older tours without it are not checked."""
+    Tour.swift records `ms` from before the tap until the tree first changed (the tap call itself returns only when
+    the app is idle, so a main-thread stall is inside it). A tap that was performed but carries no `ms` is a finding,
+    never a silent skip: a tour copy older than these rules proves nothing about latency."""
     limit = int(cfg.get("maxTapMillis", 1500))
     for tap in taps:
-        if "ms" not in tap:
-            continue
+        if tap.get("revealed") is False:
+            continue   # never tapped; controls-change-screen reports it
         report.count("taps-respond")
+        if "ms" not in tap:
+            report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} recorded no timing (Tour.swift copy older than the rules)')
+            continue
         if int(tap["ms"]) > limit:
             report.fail("taps-respond", tap.get("step", ""),
                         f'tapping {tap.get("identifier")} took {tap["ms"]} ms to change the screen (limit {limit} ms)')

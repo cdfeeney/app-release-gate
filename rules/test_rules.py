@@ -113,7 +113,7 @@ def test_parser():
 
 
 def test_bad_tour_fails_every_rule():
-    result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True},
+    result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True, "ms": 200},
                                     {"identifier": "coach-slow", "step": "t", "changed": True, "expected": True, "ms": 3400}])
     failed = {f["rule"] for f in result["findings"]}
     missing = ALL_RULES - failed
@@ -153,10 +153,12 @@ def test_fixture_rules_apply_to_that_fixture_only():
     assert any("Hidden row" in f["message"] for f in findings(text, "forbidden-text")), text["findings"]
 
 
-def test_taps_without_timing_are_not_judged():
+def test_taps_without_timing_fail_closed():
     clean, today = clean_trees()
     result = run_tour(clean, today, [{"identifier": "old", "step": "s", "changed": True, "expected": True}])   # a tour from before `ms`
-    assert result["checked"].get("taps-respond", 0) == 0 and not findings(result, "taps-respond")
+    assert any("no timing" in f["message"] for f in findings(result, "taps-respond")), result["findings"]
+    skipped = run_tour(clean, today, [{"identifier": "gone", "step": "s", "changed": False, "expected": True, "revealed": False}])
+    assert not findings(skipped, "taps-respond") and findings(skipped, "controls-change-screen")   # never tapped: not a latency question
     limit = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 1500}])
     assert not findings(limit, "taps-respond"), "the limit itself passes"
     over = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 1501}], config={**CONFIG, "maxTapMillis": 1500})
@@ -214,6 +216,6 @@ if __name__ == "__main__":
     test_count_line_without_a_title_line_fails()
     test_rows_reachable_only_where_the_tour_scrolled()
     test_fixture_rules_apply_to_that_fixture_only()
-    test_taps_without_timing_are_not_judged()
+    test_taps_without_timing_fail_closed()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

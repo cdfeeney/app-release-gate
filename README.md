@@ -33,8 +33,9 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   screens the tour scrolled to the bottom (`scrollToBottom` steps in `tour.json`), since a single screenshot
   legitimately has rows below the fold
 - `controls-change-screen`: every tapped control changed something
-- `taps-respond`: every tap shows its effect within `maxTapMillis` (default 1500; the tour records `ms` per tap, and
-  XCUITest's tap returns only when the app is idle again, so a main-thread stall shows up here)
+- `taps-respond`: every tap is answered within `maxTapMillis` (default 1500). The tour records `idleMs` per tap, the
+  time XCUITest's tap call took, and that call returns only when the app is idle again, so a main-thread stall is
+  inside it. (`ms`, until the tree first differed, includes one tree snapshot and is only the fallback for older tours.)
 - `instruction-not-live`: instruction text is never a tappable item
 - `forbidden-text`: `Optional(`, `nil`, `NaN`, placeholders
 - `forbidden-identifiers`: controls that must never be on screen, by accessibility identifier (per-side rows, in-app

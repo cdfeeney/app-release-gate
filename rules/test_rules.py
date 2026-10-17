@@ -163,6 +163,11 @@ def test_taps_without_timing_fail_closed():
     assert not findings(limit, "taps-respond"), "the limit itself passes"
     over = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 1501}], config={**CONFIG, "maxTapMillis": 1500})
     assert findings(over, "taps-respond")
+    # idleMs (the app's own response) is judged when present; a slow tree snapshot in ms is not the app's fault
+    idle = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 400}])
+    assert not findings(idle, "taps-respond"), idle["findings"]
+    stall = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 2200}])
+    assert any("2200 ms to go idle" in f["message"] for f in findings(stall, "taps-respond")), stall["findings"]
 
 
 def test_week_mentions_are_strict_unless_allowed():

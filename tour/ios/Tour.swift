@@ -182,6 +182,7 @@ final class TourTests: XCTestCase {
         // (owner 10-17: "buttons take three or four seconds"); the rules compare it with maxTapMillis.
         let started = Date()
         target.tap()
+        let idleMs = Int(Date().timeIntervalSince(started) * 1000)   // the app's own response: tap() returns once it is idle again
         var changed = false
         if expectChange {
             for _ in 0..<12 {
@@ -191,8 +192,8 @@ final class TourTests: XCTestCase {
         } else {
             changed = normalized(app.debugDescription) != before   // one look: a tap expected to change nothing is not polled for 3 s
         }
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
-        taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms])
+        let ms = Int(Date().timeIntervalSince(started) * 1000)   // until the tree first differed: includes one tree snapshot (~1 s on a big screen)
+        taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms, "idleMs": idleMs])
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
     }
 

@@ -84,7 +84,7 @@ final class TourTests: XCTestCase {
                 environment[key] = try fixtureJSON(fixture, relativeTo: manifestURL.deletingLastPathComponent())
             }
             app.launchEnvironment = environment
-            app.launch()
+            launch(app)
             for flow in manifest.flows {
                 run(flow, fixture: fixture?.name ?? "default", in: app)
             }
@@ -95,6 +95,23 @@ final class TourTests: XCTestCase {
         try write(json: taps, name: "taps.json")
         try write(json: ["problems": problems, "fixtures": fixtures.map { $0?.name ?? "default" }, "screens": index.count], name: "summary.json")
         XCTAssertTrue(problems.isEmpty, problems.joined(separator: "\n"))
+    }
+
+    /// A simulator under load sometimes fails the first launch with "Failed to get background assertion for target
+    /// app … Timed out" (ConorHealth runs 1 and 4): a runner condition, not the app. Up to two such failures are
+    /// expected and retried; the third attempt counts like any other failure.
+    static let launchAttempts = 3
+    private func launch(_ app: XCUIApplication) {
+        for attempt in 1..<Self.launchAttempts {
+            let options = XCTExpectedFailure.Options()
+            options.isStrict = false
+            options.issueMatcher = { $0.compactDescription.contains("background assertion") }
+            XCTExpectFailure("simulator launch flake, attempt \(attempt)", options: options) { app.launch() }
+            if app.state == .runningForeground { return }
+            app.terminate()
+            Thread.sleep(forTimeInterval: 5)
+        }
+        app.launch()
     }
 
     // MARK: steps

@@ -29,21 +29,36 @@ def build_prompt(tour, profile, rules_report):
     ])
 
 
+FENCE = re.compile(r"```([A-Za-z0-9_-]*)[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
+
+
 def extract_verdict(text):
-    """The LAST fenced JSON block must be the verdict, with the contracted shape; anything else is no verdict."""
-    blocks = re.findall(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if not blocks:
+    """The verdict is the FINAL fence in the output: it must be a ```json fence holding the contracted
+    object, with nothing but whitespace after it. Anything else is no verdict (fail closed)."""
+    fences = list(FENCE.finditer(text))
+    if not fences:
+        return None
+    last = fences[-1]
+    if text[last.end():].strip():
+        return None                      # prose or another fence after the verdict
+    if last.group(1) != "json":
         return None
     try:
-        obj = json.loads(blocks[-1])
+        obj = json.loads(last.group(2))
     except json.JSONDecodeError:
         return None
-    if obj.get("verdict") not in ("PASS", "FAIL") or not isinstance(obj.get("findings"), list):
+    if not isinstance(obj, dict) or obj.get("verdict") not in ("PASS", "FAIL"):
         return None
-    if not isinstance(obj.get("screens_read"), int):
+    screens = obj.get("screens_read")
+    if type(screens) is not int or screens < 0:   # bool is an int in Python; refuse it
         return None
-    for f in obj["findings"]:
+    findings = obj.get("findings")
+    if not isinstance(findings, list):
+        return None
+    for f in findings:
         if not isinstance(f, dict) or f.get("severity") not in ("BLOCKER", "HIGH", "MEDIUM", "LOW"):
+            return None
+        if not isinstance(f.get("screen"), str) or not isinstance(f.get("what"), str) or not f["what"].strip():
             return None
     return obj
 

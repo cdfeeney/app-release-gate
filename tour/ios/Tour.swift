@@ -113,7 +113,8 @@ final class TourTests: XCTestCase {
                 tap(id, label: label, expectChange: step.expectChange ?? true, optional: step.optional, in: app)
             }
             if let text = step.typeText { app.typeText(text) }
-            let screen = step.shot ?? "shot"
+            // Every capture names its screen; unnamed scrolls get a unique name so rules never merge two UI states.
+            let screen = step.shot ?? "step\(i)"
             if step.scrollToBottom == true {
                 scrollToBottom(fixture: fixture, flow: flow.name, screen: screen, label: label, in: app)
             } else if step.shot != nil {

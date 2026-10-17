@@ -1,0 +1,19 @@
+{
+  "countPatterns": [
+    "^(?P<title>.+?) · (?P<done>\\d+) of (?P<total>\\d+) done$"
+  ],
+  "rowCountPatterns": [
+    "^(?P<title>.+?) · (?P<done>\\d+) of (?P<total>\\d+) done$",
+    "^(?P<done>\\d+) of (?P<total>\\d+) done$"
+  ],
+  "rowIdentifier": "^coach-(preparation|move)-",
+  "titlePattern": "^(?P<title>.+?) · \\d+ of \\d+ done$",
+  "titleIdentifier": "",
+  "pinnedBars": ["coach-review-finish", "coach-save-hint", "workout-finish"],
+  "minutesThreshold": 60,
+  "durationAllow": [],
+  "weekPattern": "\\bweek (\\d+)\\b",
+  "weekAllow": [],
+  "instructionPatterns": ["skip it", "\\(week \\d+:"],
+  "forbiddenText": ["Optional\\(", "\\bnil\\b", "\\bNaN\\b", "\\bundefined\\b"]
+}

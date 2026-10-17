@@ -1,0 +1,249 @@
+name: Release gate
+
+# Reusable workflow. An app's own workflow calls it, then makes its upload/deploy job depend on it:
+#
+#   gate:
+#     uses: cdfeeney/app-release-gate/.github/workflows/gate.yml@main
+#     with: { container: "-project MyApp.xcodeproj", scheme: MyApp, ui_test_target: MyAppUITests, gate_dir: MyAppUITests/Gate }
+#     secrets: inherit
+#   upload:
+#     needs: [tests, gate]
+#     if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'
+#
+# Jobs: tour (deterministic XCUITest screenshots + accessibility trees) -> rules (deterministic checks)
+# -> reader (blind Claude review of the screenshots) -> verdict. Nothing here can be satisfied by the
+# session that wrote the code: the screenshots come from the runner and the verdict from a reader that
+# never sees the code.
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        description: xcodebuild container flag, e.g. "-project MyApp.xcodeproj" or "-workspace MyApp.xcworkspace"
+        type: string
+        required: true
+      scheme:
+        type: string
+        required: true
+      ui_test_target:
+        description: UI test target that holds the kit's Tour.swift copy, e.g. MyAppUITests
+        type: string
+        required: true
+      gate_dir:
+        description: Directory with tour.json, rules.json, profile.json and fixtures/, e.g. MyAppUITests/Gate
+        type: string
+        required: true
+      device_type:
+        type: string
+        default: com.apple.CoreSimulator.SimDeviceType.iPhone-16
+      runtime:
+        type: string
+        default: com.apple.CoreSimulator.SimRuntime.iOS-26-2
+      developer_dir:
+        description: Xcode to use; empty keeps the runner default
+        type: string
+        default: ""
+      kit_ref:
+        type: string
+        default: main
+      claude_code_version:
+        type: string
+        default: "2.1.282"
+      reader_model:
+        description: Model for the blind reader; empty keeps the Claude Code default
+        type: string
+        default: ""
+    outputs:
+      verdict:
+        description: PASS only when the tour ran, every rule passed and the blind reader passed
+        value: ${{ jobs.verdict.outputs.verdict }}
+
+permissions:
+  contents: read
+
+jobs:
+  tour:
+    name: Screenshot tour
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cdfeeney/app-release-gate
+          ref: ${{ inputs.kit_ref }}
+          path: .release-gate-kit
+          persist-credentials: false
+
+      - name: The app's Tour.swift must be the kit's
+        run: python3 .release-gate-kit/scripts/verify-copy.py .release-gate-kit "${{ inputs.ui_test_target }}/Tour.swift"
+
+      - name: Boot an iPhone
+        run: |
+          if [ -n "${{ inputs.developer_dir }}" ]; then echo "DEVELOPER_DIR=${{ inputs.developer_dir }}" >> "$GITHUB_ENV"; export DEVELOPER_DIR="${{ inputs.developer_dir }}"; fi
+          SIMULATOR_ID=$(xcrun simctl create "Release gate" "${{ inputs.device_type }}" "${{ inputs.runtime }}")
+          echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIMULATOR_ID"
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+      - name: Run the tour
+        timeout-minutes: 35
+        env:
+          TEST_RUNNER_TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
+          TEST_RUNNER_TOUR_OUT: ${{ runner.temp }}/tour
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/tour"
+          xcodebuild ${{ inputs.container }} -scheme "${{ inputs.scheme }}" -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -resultBundlePath "$RUNNER_TEMP/tour.xcresult" \
+            -only-testing:"${{ inputs.ui_test_target }}/TourTests" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee "$RUNNER_TEMP/tour/xcodebuild.log" | grep -E "error:|Test Case|\*\* TEST|failed|passed" || true
+          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json"; tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
+          python3 - "$RUNNER_TEMP/tour/summary.json" <<'EOF'
+          import json, sys
+          s = json.load(open(sys.argv[1]))
+          print(f"fixtures: {s.get('fixtures')}; problems: {len(s.get('problems', []))}")
+          for p in s.get("problems", []): print("  TOUR PROBLEM:", p)
+          sys.exit(1 if s.get("problems") else 0)
+          EOF
+
+      - name: Upload the tour
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gate-tour-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tour
+          retention-days: 14
+          if-no-files-found: warn
+
+  rules:
+    name: Rules
+    needs: tour
+    if: always() && needs.tour.result != 'skipped' && needs.tour.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      verdict: ${{ steps.rules.outputs.verdict }}
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cdfeeney/app-release-gate
+          ref: ${{ inputs.kit_ref }}
+          path: .release-gate-kit
+          persist-credentials: false
+      - name: Download the tour
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-gate-tour-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tour
+      - name: Run the rules
+        id: rules
+        run: |
+          v=FAIL
+          python3 .release-gate-kit/rules/rules.py --tour "$RUNNER_TEMP/tour" \
+            --config "${{ inputs.gate_dir }}/rules.json" --manifest "${{ inputs.gate_dir }}/tour.json" \
+            --out "$RUNNER_TEMP/rules-report.json" && v=PASS
+          echo "verdict=$v" >> "$GITHUB_OUTPUT"
+          echo "Rules: $v" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the rules report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gate-rules-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rules-report.json
+          retention-days: 14
+
+  reader:
+    name: Blind reader
+    needs: [tour, rules]
+    if: always() && needs.tour.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      verdict: ${{ steps.reader.outputs.verdict }}
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cdfeeney/app-release-gate
+          ref: ${{ inputs.kit_ref }}
+          path: .release-gate-kit
+          persist-credentials: false
+      - name: Download the tour
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-gate-tour-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tour
+      - name: Download the rules report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-gate-rules-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rules
+      - name: Install Claude Code and prove it can sign in
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${{ inputs.claude_code_version }}" > "$RUNNER_TEMP/npm.log" 2>&1 || { tail -20 "$RUNNER_TEMP/npm.log"; exit 1; }
+          claude -p "Reply with the single word READY." --no-session-persistence > "$RUNNER_TEMP/auth.txt" 2>&1 || true
+          grep -q READY "$RUNNER_TEMP/auth.txt" || { echo "Claude sign-in failed:"; head -c 400 "$RUNNER_TEMP/auth.txt"; exit 1; }
+      - name: Read every screenshot
+        id: reader
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          v=FAIL
+          python3 .release-gate-kit/reader/run.py --tour "$RUNNER_TEMP/tour" --profile "${{ inputs.gate_dir }}/profile.json" \
+            --rules-report "$RUNNER_TEMP/rules/rules-report.json" --out "$RUNNER_TEMP/reader.json" --model "${{ inputs.reader_model }}" && v=PASS
+          echo "verdict=$v" >> "$GITHUB_OUTPUT"
+          { echo "Blind reader: $v"; echo '```'; cat "$RUNNER_TEMP/reader.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Refuse to publish anything containing the token
+        id: scan
+        if: always()
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && grep -qF "$CLAUDE_CODE_OAUTH_TOKEN" "$RUNNER_TEMP"/reader.* 2>/dev/null; then
+            rm -f "$RUNNER_TEMP"/reader.*; echo "Token found in output; evidence deleted"; exit 1
+          fi
+      - name: Upload the reader verdict
+        if: always() && steps.scan.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gate-reader-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reader.*
+          retention-days: 14
+
+  verdict:
+    name: Gate verdict
+    needs: [tour, rules, reader]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      verdict: ${{ steps.v.outputs.verdict }}
+    steps:
+      - id: v
+        run: |
+          v=FAIL
+          if [ "${{ needs.tour.result }}" = success ] && [ "${{ needs.rules.outputs.verdict }}" = PASS ] && [ "${{ needs.reader.outputs.verdict }}" = PASS ]; then v=PASS; fi
+          echo "verdict=$v" >> "$GITHUB_OUTPUT"
+          echo "Release gate: $v (tour=${{ needs.tour.result }}, rules=${{ needs.rules.outputs.verdict }}, reader=${{ needs.reader.outputs.verdict }})" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$v" = PASS ]

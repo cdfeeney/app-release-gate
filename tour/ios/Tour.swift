@@ -50,12 +50,17 @@ final class TourTests: XCTestCase {
     }
 
     private static let maxScrollStops = 25
+    private static let maxCandidates = 3   // tapMatching: how many matching identifiers to try to reveal before giving up
 
     private var outDir: URL!
     private var shotIndex = 0
     private var index: [[String: Any]] = []
     private var taps: [[String: Any]] = []
     private var problems: [String] = []
+    /// Identifiers seen at any capture of the current flow, in first-seen (top-to-bottom) order. Lazy lists drop
+    /// off-screen rows from the live tree, so `tapMatching` searches this union, not just what is on screen now.
+    private var seenIdentifiers: [String] = []
+    private var seenIdentifierSet = Set<String>()
 
     private var gateDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Gate")
@@ -95,6 +100,8 @@ final class TourTests: XCTestCase {
     // MARK: steps
 
     private func run(_ flow: Flow, fixture: String, in app: XCUIApplication) {
+        seenIdentifiers = []
+        seenIdentifierSet = []
         for (i, step) in flow.steps.enumerated() {
             let label = "\(fixture)/\(flow.name)/step\(i)"
             if let id = step.waitFor {
@@ -105,12 +112,26 @@ final class TourTests: XCTestCase {
                 if swipe == "down" { app.swipeDown(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
             }
             var target = step.tap
+            var resolved = false
             if target == nil, let pattern = step.tapMatching {
-                target = firstIdentifier(matching: pattern, in: app)
-                if target == nil { note("\(label): no element matches \(pattern)", optional: step.optional) }
+                let candidates = matchingIdentifiers(pattern, in: app)
+                if candidates.isEmpty {
+                    note("\(label): no element matches \(pattern)", optional: step.optional)
+                } else {
+                    // The element exists in this app: from here on nothing about this step is optional.
+                    resolved = true
+                    let tried = Array(candidates.prefix(Self.maxCandidates))
+                    target = tried.first { reveal(element($0, in: app), in: app) }
+                    if target == nil {
+                        taps.append(["identifier": tried[0], "step": label, "changed": false, "expected": step.expectChange ?? true, "revealed": false])
+                        note("\(label): \(candidates.count) identifier(s) match \(pattern) but none could be revealed: \(tried)", optional: false)
+                    }
+                }
             }
             if let id = target {
-                tap(id, label: label, expectChange: step.expectChange ?? true, optional: step.optional, in: app)
+                var optional = step.optional
+                if resolved { optional = false }
+                tap(id, label: label, expectChange: step.expectChange ?? true, optional: optional, in: app)
             }
             if let text = step.typeText { app.typeText(text) }
             // Every capture names its screen; unnamed scrolls get a unique name so rules never merge two UI states.
@@ -125,8 +146,10 @@ final class TourTests: XCTestCase {
 
     private func tap(_ id: String, label: String, expectChange: Bool, optional: Bool?, in app: XCUIApplication) {
         let target = element(id, in: app)
-        reveal(target, in: app)
-        guard target.exists, target.isHittable else {
+        guard reveal(target, in: app) else {
+            if optional != true {
+                taps.append(["identifier": id, "step": label, "changed": false, "expected": expectChange, "revealed": false])
+            }
             note("\(label): \(id) not tappable (exists=\(target.exists))", optional: optional)
             return
         }
@@ -161,6 +184,7 @@ final class TourTests: XCTestCase {
         let base = String(format: "%03d", shotIndex) + "-\(fixture)-\(flow)-\(name)"
         let png = XCUIScreen.main.screenshot().pngRepresentation
         let tree = app.debugDescription
+        remember(identifiers(in: tree))
         do {
             try png.write(to: outDir.appendingPathComponent(base + ".png"))
             try tree.write(to: outDir.appendingPathComponent(base + ".tree.txt"), atomically: true, encoding: .utf8)
@@ -179,27 +203,59 @@ final class TourTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    private func firstIdentifier(matching pattern: String, in app: XCUIApplication) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        for line in app.debugDescription.components(separatedBy: "\n") {
+    private func identifiers(in tree: String) -> [String] {
+        var ids: [String] = []
+        for line in tree.components(separatedBy: "\n") {
             guard let range = line.range(of: "identifier: '") else { continue }
             let rest = line[range.upperBound...]
             guard let end = rest.firstIndex(of: "'") else { continue }
-            let id = String(rest[..<end])
-            if regex.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil { return id }
+            ids.append(String(rest[..<end]))
         }
-        return nil
+        return ids
     }
 
-    private func reveal(_ target: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<18 {
-            if target.exists && target.isHittable { return }
-            if target.exists && target.frame.height > 0 && target.frame.minY < app.frame.minY + 100 {
-                app.swipeDown(velocity: .slow)
-            } else {
-                app.swipeUp(velocity: .slow)
-            }
+    private func remember(_ ids: [String]) {
+        for id in ids where !seenIdentifierSet.contains(id) {
+            seenIdentifierSet.insert(id)
+            seenIdentifiers.append(id)
         }
+    }
+
+    /// Identifiers matching the pattern, in order: what is on screen now first (certainly this screen), then
+    /// everything this flow has captured so far, top to bottom (lazy lists drop off-screen rows from the live tree).
+    private func matchingIdentifiers(_ pattern: String, in app: XCUIApplication) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var ordered: [String] = []
+        var seen = Set<String>()
+        for id in identifiers(in: app.debugDescription) + seenIdentifiers where !seen.contains(id) {
+            seen.insert(id)
+            if regex.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil { ordered.append(id) }
+        }
+        return ordered
+    }
+
+    /// Make the target hittable and say whether it is: if it is not on screen (or not even in the live tree),
+    /// scroll back to the top until the tree stops changing, then walk down until it is hittable or the end.
+    @discardableResult
+    private func reveal(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
+        if target.exists && target.isHittable { return true }
+        var last = ""
+        for _ in 0..<Self.maxScrollStops {
+            if target.exists && target.isHittable { return true }
+            let now = normalized(app.debugDescription)
+            if now == last { break }
+            last = now
+            app.swipeDown(velocity: .slow)
+        }
+        last = ""
+        for _ in 0..<Self.maxScrollStops {
+            if target.exists && target.isHittable { return true }
+            let now = normalized(app.debugDescription)
+            if now == last { return false }
+            last = now
+            app.swipeUp(velocity: .slow)
+        }
+        return target.exists && target.isHittable
     }
 
     private func normalized(_ tree: String) -> String {

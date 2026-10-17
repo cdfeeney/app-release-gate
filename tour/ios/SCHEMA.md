@@ -17,7 +17,7 @@
     {"name": "session", "steps": [
       {"tap": "today-coach-start"},                     // default expectChange: true
       {"scrollToBottom": true, "shot": "session"},
-      {"tapMatching": "^coach-select-weight-b\\d+-e0-p0$", "optional": true},  // first identifier matching a regex
+      {"tapMatching": "^coach-select-weight-b\\d+-e\\d+-p0$", "optional": true},  // first identifier matching a regex, searched over every capture of this flow so far (lazy lists drop off-screen rows), then the live tree; the tour scrolls back to reveal it
       {"shot": "after-find"},                           // single screenshot
       {"typeText": "45"},                               // types into the focused field (use after a tap)
       {"swipe": "down"},                                // one slow swipe up|down

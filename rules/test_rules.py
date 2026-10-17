@@ -168,6 +168,11 @@ def test_taps_without_timing_fail_closed():
     assert not findings(idle, "taps-respond"), idle["findings"]
     stall = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 2600, "idleMs": 2200}])
     assert any("2200 ms to go idle" in f["message"] for f in findings(stall, "taps-respond")), stall["findings"]
+    # work deferred past the tap (a debounced write) shows in the settle probe and counts too
+    later = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 900, "idleMs": 300, "settleMs": 1900}])
+    assert any("1900 ms to go idle 0.8 s after the tap" in f["message"] for f in findings(later, "taps-respond")), later["findings"]
+    quick = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 900, "idleMs": 300, "settleMs": 120}])
+    assert not findings(quick, "taps-respond")
 
 
 def test_week_mentions_are_strict_unless_allowed():

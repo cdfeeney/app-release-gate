@@ -183,6 +183,7 @@ final class TourTests: XCTestCase {
         let started = Date()
         target.tap()
         let idleMs = Int(Date().timeIntervalSince(started) * 1000)   // the app's own response: tap() returns once it is idle again
+        let settleMs = settle(in: app)
         var changed = false
         if expectChange {
             for _ in 0..<12 {
@@ -193,8 +194,23 @@ final class TourTests: XCTestCase {
             changed = normalized(app.debugDescription) != before   // one look: a tap expected to change nothing is not polled for 3 s
         }
         let ms = Int(Date().timeIntervalSince(started) * 1000)   // until the tree first differed: includes one tree snapshot (~1 s on a big screen)
-        taps.append(["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms, "idleMs": idleMs])
+        var entry: [String: Any] = ["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms, "idleMs": idleMs]
+        if let settleMs { entry["settleMs"] = settleMs }
+        taps.append(entry)
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
+    }
+
+    /// Work an app defers past the tap (a debounced write 700 ms later) escapes `idleMs`, so after `settleDelay` a
+    /// harmless tap on the centre of the navigation bar is timed: XCUITest waits for the app to be idle before it
+    /// dispatches any event, so that wait is the stall the next real tap would have felt. Nil without a navigation bar.
+    static let settleDelay: TimeInterval = 0.8
+    private func settle(in app: XCUIApplication) -> Int? {
+        let bar = app.navigationBars.firstMatch
+        guard bar.exists else { return nil }
+        Thread.sleep(forTimeInterval: Self.settleDelay)
+        let started = Date()
+        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        return Int(Date().timeIntervalSince(started) * 1000)
     }
 
     /// Capture, swipe up, capture again, until the tree stops changing. Every state that exists is captured.

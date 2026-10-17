@@ -29,9 +29,11 @@
 
 Output per stop: `NNN-<fixture>-<flow>-<name>.png` and `.tree.txt` (the accessibility tree), listed in
 `index.json`; every tap in `taps.json` with `changed: true|false`, `idleMs` (how long the tap call took; XCUITest
-returns only when the app is idle again, so a main-thread stall is inside it) and `ms` (until the tree first
-differed; includes one tree snapshot, about a second on a big screen. Neither proves the intended result appeared:
-an early spinner counts as a change); `summary.json` with problems (missing
+returns only when the app is idle again, so a main-thread stall is inside it), `settleMs` (0.8 s after the tap a
+harmless tap on the centre of the navigation bar is timed; XCUITest waits for the app to be idle before any event,
+so work the app deferred past the tap, such as a debounced write, shows here; absent on screens without a
+navigation bar) and `ms` (until the tree first differed; includes one tree snapshot, about a second on a big
+screen. None proves the intended result appeared: an early spinner counts as a change); `summary.json` with problems (missing
 identifiers, taps that changed nothing). A non-optional problem fails the tour.
 
 Paths: `TOUR_PATH`/`TOUR_OUT` from the environment (xcodebuild passes `TEST_RUNNER_TOUR_PATH` as

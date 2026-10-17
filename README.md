@@ -35,7 +35,9 @@ This gate looks at what a person sees, with their real data, and refuses the upl
 - `controls-change-screen`: every tapped control changed something
 - `taps-respond`: every tap is answered within `maxTapMillis` (default 1500). The tour records `idleMs` per tap, the
   time XCUITest's tap call took, and that call returns only when the app is idle again, so a main-thread stall is
-  inside it. (`ms`, until the tree first differed, includes one tree snapshot and is only the fallback for older tours.)
+  inside it; and `settleMs`, the idle wait a harmless probe tap met 0.8 s later, so work the app deferred past the
+  tap (a debounced write) counts too. The larger of the two is judged. (`ms`, until the tree first differed, includes
+  one tree snapshot and is only the fallback for older tours.)
 - `instruction-not-live`: instruction text is never a tappable item
 - `forbidden-text`: `Optional(`, `nil`, `NaN`, placeholders
 - `forbidden-identifiers`: controls that must never be on screen, by accessibility identifier (per-side rows, in-app

@@ -408,7 +408,10 @@ def rule_taps_respond(taps, cfg, report):
             continue   # never tapped; controls-change-screen reports it
         report.count("taps-respond")
         if "idleMs" in tap:
+            # settleMs: the idle wait a probe tap met 0.8 s later, i.e. work the app deferred past the tap
             took, what = int(tap["idleMs"]), "to go idle after the tap"
+            if int(tap.get("settleMs", 0)) > took:
+                took, what = int(tap["settleMs"]), "to go idle 0.8 s after the tap (deferred work)"
         elif "ms" in tap:
             took, what = int(tap["ms"]), "to change the screen (older tour: includes one tree snapshot)"
         else:

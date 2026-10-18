@@ -181,6 +181,7 @@ final class TourTests: XCTestCase {
             note("\(label): \(id) not tappable (exists=\(target.exists))", optional: optional)
             return
         }
+        clearOfBars(target, in: app)
         let before = normalized(app.debugDescription)
         // tap() returns once the app is idle again, so a main-thread stall after the tap lands in `ms`
         // (owner 10-17: "buttons take three or four seconds"); the rules compare it with maxTapMillis.
@@ -234,6 +235,18 @@ final class TourTests: XCTestCase {
             note("\(label): the app did not return to the foreground after \(seconds) s in the background", optional: false)
         }
         pendingBackground = ["seconds": seconds, "resumeMs": Int(Date().timeIntervalSince(started) * 1000)]
+    }
+
+    /// A row that has scrolled under the navigation bar is still reported hittable, and the tap then lands on the
+    /// bar (ConorHealth run 5b: "changed nothing"). Drag the content down until the target sits clear of the bar.
+    private func clearOfBars(_ target: XCUIElement, in app: XCUIApplication) {
+        let bar = app.navigationBars.firstMatch
+        guard bar.exists, target.exists else { return }
+        let overlap = (bar.frame.maxY + 12) - target.frame.minY
+        guard overlap > 0 else { return }
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: overlap + 40)))
+        Thread.sleep(forTimeInterval: 0.5)
     }
 
     /// Work an app defers past the tap (a debounced write 700 ms later) escapes `idleMs`, so after `settleDelay` a

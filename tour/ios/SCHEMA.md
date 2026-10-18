@@ -61,5 +61,7 @@ Paths: `TOUR_PATH`/`TOUR_OUT` from the environment (xcodebuild passes `TEST_RUNN
   `rules.json` `pinnedBars` so `rows-reachable` can see it.
 - `Text` is a staticText, not a button. Taps land on the centre of the frame; a row with a Spacer needs
   `.contentShape(Rectangle())`.
+- A row scrolled under the navigation bar is still reported hittable and the tap lands on the bar; the tour drags
+  the content down until a target sits clear of the bar before every tap.
 - `app.terminate()` is SIGKILL: anything not yet persisted is lost; flush before the next flow if a
   flow depends on saved state.

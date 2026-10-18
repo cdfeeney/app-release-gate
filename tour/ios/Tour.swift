@@ -296,10 +296,10 @@ final class TourTests: XCTestCase {
     /// scroll back to the top until the tree stops changing, then walk down until it is hittable or the end.
     @discardableResult
     private func reveal(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
-        if target.exists && target.isHittable { return true }
+        if isClear(target, in: app) { return true }
         var last = ""
         for _ in 0..<Self.maxScrollStops {
-            if target.exists && target.isHittable { return true }
+            if isClear(target, in: app) { return true }
             let now = normalized(app.debugDescription)
             if now == last { break }
             last = now
@@ -307,13 +307,29 @@ final class TourTests: XCTestCase {
         }
         last = ""
         for _ in 0..<Self.maxScrollStops {
-            if target.exists && target.isHittable { return true }
+            if isClear(target, in: app) { return true }
             let now = normalized(app.debugDescription)
             if now == last { return false }
             last = now
             app.swipeUp(velocity: .slow)
         }
-        return target.exists && target.isHittable
+        return isClear(target, in: app)
+    }
+
+    /// Hittable and not under a translucent bar: XCUITest calls a row hittable while the navigation bar or a
+    /// floating tab bar covers it, and the tap then lands on the bar (Conor Mastery run 39163998440: a Done button
+    /// scrolled under the navigation bar "changed nothing"). Items that belong to a bar are always clear.
+    private func isClear(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard target.exists, target.isHittable else { return false }
+        let frame = target.frame
+        let bars = app.navigationBars.allElementsBoundByIndex.map(\.frame) + app.tabBars.allElementsBoundByIndex.map(\.frame)
+        if bars.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) && $0.height < app.frame.height / 3 }) {
+            // The centre is inside a bar: either a bar item (fine) or a row underneath it (not fine).
+            let barItem = (app.navigationBars.allElementsBoundByIndex + app.tabBars.allElementsBoundByIndex)
+                .contains { $0.descendants(matching: .any).matching(identifier: target.identifier).count > 0 }
+            return barItem
+        }
+        return true
     }
 
     private func normalized(_ tree: String) -> String {

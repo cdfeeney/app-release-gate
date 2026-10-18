@@ -39,12 +39,13 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   tap (a debounced write) counts too. The larger of the two is judged. (`ms`, until the tree first differed, includes
   one tree snapshot and is only the fallback for older tours.)
 - `app-timings`: the app's own clocks. After every tap the tour reads an element with identifier `gate-perf` whose
-  label reads `tap=123 write=4 sync=1` (the app's tap-to-redraw time, its last write, how many full syncs it has run)
-  into the tap's `app` dict. XCUITest's idle wait includes animations and about half a second of harness overhead, so
-  it cannot tell a 100 ms tick from a 600 ms one; the app can. Each key in `maxAppMillis` has its own budget; a tap
-  whose identifier matches `appTimedIdentifiers` but carries no `app` fails closed; and `sync` must not rise into a
-  tap that follows a `background` step (an unlock between sets must never run a sync). The rule is off when neither
-  key is configured.
+  value reads `tap=123 write=4 sync=1 n=7` (the app's tap-to-idle time, its last write, how many full syncs it has
+  run, how many tap measurements it has completed) into the tap's `app` dict. XCUITest's idle wait includes
+  animations and about half a second of harness overhead, so it cannot tell a 100 ms tick from a 600 ms one; the app
+  can. Each key in `maxAppMillis` has its own budget; a tap whose identifier matches `appTimedIdentifiers` must carry
+  every budgeted key and an `n` that advanced since the last timed tap of that launch (a stale reading is the previous
+  tap's number); and `sync` must be readable on both sides of a `background` step and must not rise across it (an
+  unlock between sets must never run a sync). The rule is off when neither key is configured.
 - `instruction-not-live`: instruction text is never a tappable item
 - `forbidden-text`: `Optional(`, `nil`, `NaN`, placeholders
 - `forbidden-identifiers`: controls that must never be on screen, by accessibility identifier (per-side rows, in-app

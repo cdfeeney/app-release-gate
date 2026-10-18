@@ -61,6 +61,7 @@ ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles
              "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text",
              "forbidden-identifiers", "taps-respond", "app-timings"}
 TICK = {"identifier": "coach-preparation-b1-c0-s0", "step": "wed/session/step3", "changed": True, "expected": True, "ms": 900, "idleMs": 400}
+PERF = {"tap": 120, "write": 3, "sync": 1, "n": 1}
 SCROLLED = {("session", "session"), ("today", "today")}
 WEEK2 = {"wed": {"week": 2}}
 
@@ -118,7 +119,7 @@ def test_parser():
 def test_bad_tour_fails_every_rule():
     result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True, "ms": 200},
                                     {"identifier": "coach-slow", "step": "t", "changed": True, "expected": True, "ms": 3400},
-                                    {**TICK, "app": {"tap": 900, "write": 4, "sync": 1}}])   # the app's own clock: 900 ms for a tick
+                                    {**TICK, "app": {**PERF, "tap": 900}}])   # the app's own clock: 900 ms for a tick
     failed = {f["rule"] for f in result["findings"]}
     missing = ALL_RULES - failed
     assert not missing, f"rules that should have failed but passed: {missing}\n{json.dumps(result['findings'], indent=1)}"
@@ -143,9 +144,9 @@ def test_bad_tour_fails_every_rule():
 
 def test_clean_tour_passes():
     clean, today = clean_trees()
-    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 420},
-                                     {**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
-                                     {**TICK, "step": "wed/session/step5", "app": {"tap": 110, "write": 3, "sync": 1},
+    result = run_tour(clean, today, [{"identifier": "ok", "step": "wed/today/step1", "changed": True, "expected": True, "ms": 420},
+                                     {**TICK, "app": PERF},
+                                     {**TICK, "step": "wed/session/step5", "app": {**PERF, "tap": 110, "n": 2},
                                       "afterBackground": {"seconds": 3, "resumeMs": 400}}])   # an unlock that synced nothing
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
     for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
@@ -161,18 +162,31 @@ def test_app_timings_are_the_apps_own_clock():
     found = findings(silent, "app-timings")
     assert len(found) == 1 and "coach-preparation-b1-c0-s0" in found[0]["message"] and "no app timings" in found[0]["message"], found
     # each budgeted key is judged on its own; keys without a budget (sync) are never a finding by size
-    write = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 80, "sync": 7}}])
+    write = run_tour(clean, today, [{**TICK, "app": {**PERF, "write": 80, "sync": 7}}])
     found = findings(write, "app-timings")
     assert len(found) == 1 and "80 ms (write)" in found[0]["message"], found
+    # a partial reading is no reading: every budgeted clock and the sample count `n` must be there on a timed tap
+    partial = run_tour(clean, today, [{**TICK, "app": {"sync": 1}}])
+    found = findings(partial, "app-timings")
+    assert len(found) == 1 and "no app timings for tap, write, n" in found[0]["message"], found
+    # a reading that did not advance is the previous tap's number, not this one's
+    stale = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "wed/session/step5", "app": PERF}])
+    found = findings(stale, "app-timings")
+    assert len(found) == 1 and "stale" in found[0]["message"] and "n=1" in found[0]["message"], found
+    fresh_launch = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "thu/session/step3", "app": PERF}])
+    assert not findings(fresh_launch, "app-timings"), "another fixture is another launch: its counters start again"
     # the unlock between sets must not sync: the sync count may not rise into a tap marked afterBackground
-    synced = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
-                                     {**TICK, "step": "wed/session/step5", "app": {"tap": 120, "write": 3, "sync": 2},
+    synced = run_tour(clean, today, [{**TICK, "app": PERF},
+                                     {**TICK, "step": "wed/session/step5", "app": {**PERF, "sync": 2, "n": 2},
                                       "afterBackground": {"seconds": 3, "resumeMs": 400}}])
     found = findings(synced, "app-timings")
     assert len(found) == 1 and "synced on returning from 3 s" in found[0]["message"] and "1 -> 2" in found[0]["message"], found
+    # ...and the count must be readable on both sides of the background step, or nothing was proven
+    blind = run_tour(clean, today, [{"identifier": "tab-Plan", "step": "wed/plan/step0", "changed": True, "expected": True, "ms": 900, "idleMs": 400,
+                                     "afterBackground": {"seconds": 3, "resumeMs": 400}}])
+    assert any("not readable on both sides" in f["message"] for f in findings(blind, "app-timings")), blind["findings"]
     # a sync between two taps with no background step in between (a Save, a Sync now) is allowed
-    saved = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
-                                    {**TICK, "step": "wed/session/step5", "app": {"tap": 120, "write": 3, "sync": 2}}])
+    saved = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "wed/session/step5", "app": {**PERF, "sync": 2, "n": 2}}])
     assert not findings(saved, "app-timings"), saved["findings"]
     # without budgets or timed identifiers the rule is off, never a silent pass that counts as checked
     off = run_tour(clean, today, [TICK], config={k: v for k, v in CONFIG.items() if k not in ("maxAppMillis", "appTimedIdentifiers")})

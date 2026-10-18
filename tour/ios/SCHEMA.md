@@ -30,8 +30,9 @@
 
 A `background` step marks the next tap with `afterBackground: {"seconds": 3, "resumeMs": 400}` (how long the app
 took to be back in the foreground). After every tap the tour also reads an element with identifier `gate-perf`, if
-the app has one, whose label reads `tap=123 write=4 sync=1` (whatever the app chooses to clock: its tap-to-redraw
-time, its last write, how many full syncs it has run) into the tap's `app` dict for the `app-timings` rule.
+the app has one, whose value (or label) reads `tap=123 write=4 sync=1 n=7` (whatever the app chooses to clock: its
+tap-to-idle time, its last write, how many full syncs it has run, how many measurements it has completed) into the
+tap's `app` dict for the `app-timings` rule.
 
 Output per stop: `NNN-<fixture>-<flow>-<name>.png` and `.tree.txt` (the accessibility tree), listed in
 `index.json`; every tap in `taps.json` with `changed: true|false`, `idleMs` (how long the tap call took; XCUITest

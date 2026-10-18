@@ -432,25 +432,36 @@ def rule_app_timings(taps, cfg, report):
     timed = [re.compile(p) for p in cfg.get("appTimedIdentifiers", [])]
     if not budgets and not timed:
         return
-    last_sync = None
+    last_sync, last_sample, fixture = None, None, None
     for tap in taps:
         if tap.get("revealed") is False:
             continue
-        ident, step, app = tap.get("identifier", ""), tap.get("step", ""), tap.get("app")
+        ident, step, app = tap.get("identifier", ""), tap.get("step", ""), tap.get("app") or {}
+        if step.split("/")[0] != fixture:   # a new launch: the app's counters start again
+            last_sync, last_sample, fixture = None, None, step.split("/")[0]
         report.count("app-timings")
-        if app is None:
-            if any(p.search(ident) for p in timed):
-                report.fail("app-timings", step, f'tapping {ident} recorded no app timings (no gate-perf element on that screen)')
-            continue
+        is_timed = any(p.search(ident) for p in timed)
+        if is_timed:
+            # every budgeted clock plus `n`, the app's count of completed measurements: a reading that did not advance
+            # since the last timed tap is the previous tap's number, not this one's
+            missing = [k for k in list(budgets) + ["n"] if k not in app]
+            if missing:
+                report.fail("app-timings", step, f'tapping {ident} recorded no app timings for {", ".join(missing)} (gate-perf missing or incomplete)')
+            elif last_sample is not None and int(app["n"]) <= last_sample:
+                report.fail("app-timings", step, f'tapping {ident} left the app\'s timing sample at n={app["n"]} (stale: the previous timed tap was n={last_sample})')
+            if "n" in app:
+                last_sample = int(app["n"])
         for key, limit in budgets.items():
             if key in app and int(app[key]) > limit:
                 report.fail("app-timings", step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms)')
+        away = tap.get("afterBackground")
+        if away:
+            if "sync" not in app or last_sync is None:
+                report.fail("app-timings", step, f'{ident} follows {away.get("seconds")} s in the background but the sync count is not readable on both sides of it')
+            elif int(app["sync"]) > last_sync:
+                report.fail("app-timings", step, f'the app synced on returning from {away.get("seconds")} s in the background before {ident} (sync count {last_sync} -> {app["sync"]})')
         if "sync" in app:
-            sync = int(app["sync"])
-            away = tap.get("afterBackground")
-            if away and last_sync is not None and sync > last_sync:
-                report.fail("app-timings", step, f'the app synced on returning from {away.get("seconds")} s in the background before {ident} (sync count {last_sync} -> {sync})')
-            last_sync = sync
+            last_sync = int(app["sync"])
 
 
 def run(tour_dir, cfg, fixtures, scrolled=None):

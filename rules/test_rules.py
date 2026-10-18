@@ -273,6 +273,20 @@ def test_rows_reachable_only_where_the_tour_scrolled():
     assert rules.scrolled_from_manifest(None) is None
 
 
+def test_content_in_bounds_only_for_listed_identifiers():
+    spill = TREE.replace("      StaticText, 0x14,",
+                         "      Image, 0x20, {{120.0, 600.0}, {360.0, 240.0}}, identifier: 'feed.photo.m1'\n"
+                         "      Image, 0x21, {{-40.0, 600.0}, {500.0, 90.0}}, identifier: 'stories-rail'\n"
+                         "      StaticText, 0x14,")
+    inside = spill.replace("{{120.0, 600.0}, {360.0, 240.0}}, identifier: 'feed.photo.m1'",
+                           "{{20.0, 600.0}, {220.0, 240.0}}, identifier: 'feed.photo.m1'")
+    config = {**CONFIG, "inBoundsIdentifiers": [r"^feed\.photo\."]}
+    found = findings(run_tour(spill, TODAY, config=config), "content-in-bounds")
+    assert len(found) == 1 and "feed.photo.m1" in found[0]["message"]   # the rail is not listed, so it may overhang
+    assert not findings(run_tour(inside, TODAY, config=config), "content-in-bounds")
+    assert not findings(run_tour(spill, TODAY), "content-in-bounds")     # off unless configured
+
+
 def test_empty_or_broken_tour_fails():
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "index.json").write_text("[]", encoding="utf-8")
@@ -298,5 +312,6 @@ if __name__ == "__main__":
     test_taps_without_timing_fail_closed()
     test_app_timings_are_the_apps_own_clock()
     test_gate_perf_element_is_a_clock_not_a_screen_text()
+    test_content_in_bounds_only_for_listed_identifiers()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

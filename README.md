@@ -32,6 +32,9 @@ This gate looks at what a person sees, with their real data, and refuses the upl
 - `rows-reachable`: every row is fully visible above any pinned bar at some scroll position; checked only on
   screens the tour scrolled to the bottom (`scrollToBottom` steps in `tour.json`), since a single screenshot
   legitimately has rows below the fold
+- `content-in-bounds`: elements whose identifier matches `inBoundsIdentifiers` (photos, cards) stay inside the window's
+  left and right edges (NextBar 2026-10-18: a photo spilled past its chat bubble and the screen; the reader passed it).
+  Off unless configured, since a carousel legitimately overhangs
 - `controls-change-screen`: every tapped control changed something
 - `taps-respond`: every tap is answered within `maxTapMillis` (default 1500). The tour records `idleMs` per tap, the
   time XCUITest's tap call took, and that call returns only when the app is idle again, so a main-thread stall is

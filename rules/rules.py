@@ -332,6 +332,29 @@ def rule_rows_reachable(screens, cfg, report, scrolled=None):
                 report.fail("rows-reachable", f"{screen['fixture']}/{screen['flow']}", f"row {ident} is never fully visible above the pinned bar")
 
 
+def rule_content_in_bounds(screens, cfg, report):
+    """Content the app sizes itself (photos, cards) never spills past the window's left or right edge.
+    NextBar 2026-10-18: a scaledToFill photo in a ZStack sized the stack to the photo, which ran past its
+    chat bubble and off the screen; the blind reader passed it. Only identifiers matching
+    `inBoundsIdentifiers` are checked, since a horizontal carousel legitimately extends past the edge."""
+    patterns = [re.compile(p) for p in cfg.get("inBoundsIdentifiers", [])]
+    if not patterns:
+        return
+    for screen in screens:
+        for stop in screen["stops"]:
+            width = float(stop.get("window", {}).get("width") or 0)
+            if width <= 0:
+                continue
+            for el in stop["elements"]:
+                if not (el["identifier"] and el["frame"] and any(p.search(el["identifier"]) for p in patterns)):
+                    continue
+                report.count("content-in-bounds")
+                x, _, w, _ = el["frame"]
+                if x < -0.5 or x + w > width + 0.5:
+                    report.fail("content-in-bounds", f"{screen['fixture']}/{screen['flow']}",
+                                f"{el['identifier']} spans x {x:.0f}..{x + w:.0f}, outside the {width:.0f}-pt window")
+
+
 def rule_controls_change_screen(taps, report):
     """Every control the tour tapped must change something on screen."""
     for tap in taps:
@@ -485,6 +508,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_durations_in_minutes(screens, cfg, report)
     rule_no_stale_week(screens, cfg, report, fixtures)
     rule_rows_reachable(screens, cfg, report, scrolled)
+    rule_content_in_bounds(screens, cfg, report)
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)

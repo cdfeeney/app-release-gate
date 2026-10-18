@@ -316,20 +316,21 @@ final class TourTests: XCTestCase {
         return isClear(target, in: app)
     }
 
-    /// Hittable and not under a translucent bar: XCUITest calls a row hittable while the navigation bar or a
-    /// floating tab bar covers it, and the tap then lands on the bar (Conor Mastery run 39163998440: a Done button
-    /// scrolled under the navigation bar "changed nothing"). Items that belong to a bar are always clear.
+    /// Hittable and inside the visible content area: XCUITest calls a row hittable while the status bar, the
+    /// navigation bar or a floating tab bar covers it, and the tap then lands on the bar (Conor Mastery runs
+    /// 39163998440 and 39166755321: a Done button under the navigation bar, then under the status bar, "changed
+    /// nothing"). The centre must sit below the lowest top bar and above the tab bar. Bar items are always clear.
     private func isClear(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
         guard target.exists, target.isHittable else { return false }
-        let frame = target.frame
-        let bars = app.navigationBars.allElementsBoundByIndex.map(\.frame) + app.tabBars.allElementsBoundByIndex.map(\.frame)
-        if bars.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) && $0.height < app.frame.height / 3 }) {
-            // The centre is inside a bar: either a bar item (fine) or a row underneath it (not fine).
-            let barItem = (app.navigationBars.allElementsBoundByIndex + app.tabBars.allElementsBoundByIndex)
-                .contains { $0.descendants(matching: .any).matching(identifier: target.identifier).count > 0 }
-            return barItem
+        let navs = app.navigationBars.allElementsBoundByIndex, tabs = app.tabBars.allElementsBoundByIndex
+        if (navs + tabs).contains(where: { $0.descendants(matching: .any).matching(identifier: target.identifier).count > 0 }) {
+            return true
         }
-        return true
+        let height = app.frame.height
+        let top = navs.map(\.frame).filter { $0.minY < height / 2 }.map(\.maxY).max() ?? 0
+        let bottom = tabs.map(\.frame).filter { $0.minY > height / 2 }.map(\.minY).min() ?? height
+        let mid = target.frame.midY
+        return mid > top && mid < bottom
     }
 
     private func normalized(_ tree: String) -> String {

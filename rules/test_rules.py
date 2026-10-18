@@ -55,6 +55,7 @@ CONFIG = {
     "maxTapMillis": 1500,
     "maxAppMillis": {"tap": 300, "write": 50},
     "appTimedIdentifiers": [r"^coach-preparation-"],
+    "appTimingOutliers": 0,
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
@@ -199,6 +200,17 @@ def test_app_timings_are_the_apps_own_clock():
     found = findings(over, "app-timings")
     assert len(found) == 1 and "limit 1500 ms for the first timed tap" in found[0]["message"], found
     assert findings(run_tour(clean, today, [{**TICK, "app": {**PERF, "tap": 1200}}]), "app-timings"), "without maxFirstAppMillis the first tap is judged like any other"
+    # a shared simulator freezes now and then: one over-budget tap per run is an allowed outlier (counted, not a finding),
+    # a second one is the app's lag, and so is a median over the budget however the outliers fall
+    lenient = {**CONFIG, "appTimingOutliers": 1}
+    ticks = lambda taps: [{**TICK, "step": f"wed/session/step{3 + 2 * i}", "app": {**PERF, "tap": t, "n": i + 1}} for i, t in enumerate(taps)]
+    freeze = run_tour(clean, today, ticks([120, 14000, 130, 125]), config=lenient)
+    assert not findings(freeze, "app-timings") and freeze["checked"].get("app-timings-outliers-allowed") == 1, freeze["findings"]
+    twice = run_tour(clean, today, ticks([120, 14000, 130, 9000]), config=lenient)
+    assert sum("ms (tap) after tapping" in f["message"] for f in findings(twice, "app-timings")) == 2, twice["findings"]
+    laggy = run_tour(clean, today, ticks([120, 3500, 3600, 3400]), config=lenient)
+    assert any("median tap" in f["message"] and "lag, not a freeze" in f["message"] for f in findings(laggy, "app-timings")), laggy["findings"]
+    assert findings(run_tour(clean, today, ticks([120, 14000, 130, 125])), "app-timings"), "with appTimingOutliers 0 every over-budget tap is a finding"
     # without budgets or timed identifiers the rule is off, never a silent pass that counts as checked
     off = run_tour(clean, today, [TICK], config={k: v for k, v in CONFIG.items() if k not in ("maxAppMillis", "appTimedIdentifiers")})
     assert not findings(off, "app-timings") and "app-timings" not in off["checked"]

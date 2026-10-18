@@ -454,12 +454,17 @@ def rule_app_timings(taps, cfg, report):
       `maxFirstAppMillis` where given (ConorHealth run 5c/5d: the first tick after opening a screen costs several
       times a later one; that cost is budgeted on its own, in the open, not hidden inside a loose general budget);
     - a tap whose identifier matches `appTimedIdentifiers` without `app` fails closed (the screen lost its clock);
+    - a shared simulator freezes for seconds now and then (ConorHealth build-41 attempt 1: one tick at 14.7 s, every
+      other at 58-506 ms), so up to `appTimingOutliers` taps per run (default 1) may exceed a budget; more than that,
+      or a median over the budget, is the app's own lag;
     - `sync` must not rise into a tap marked `afterBackground`: an unlock between sets must never run a sync."""
     budgets = {k: int(v) for k, v in cfg.get("maxAppMillis", {}).items()}
     first_budgets = {**budgets, **{k: int(v) for k, v in cfg.get("maxFirstAppMillis", {}).items()}}
     timed = [re.compile(p) for p in cfg.get("appTimedIdentifiers", [])]
+    allowed = int(cfg.get("appTimingOutliers", 1))
     if not budgets and not timed:
         return
+    over, steady = {}, {}   # key -> over-budget taps; key -> readings of every timed tap after a launch's first
     last_sync, last_sample, fixture = None, None, None
     for tap in taps:
         if tap.get("revealed") is False:
@@ -481,9 +486,13 @@ def rule_app_timings(taps, cfg, report):
             if "n" in app:
                 last_sample = int(app["n"])
         for key, limit in limits.items():
-            if key in app and int(app[key]) > limit:
+            if key not in app:
+                continue
+            if is_timed and limits is budgets:
+                steady.setdefault(key, []).append(int(app[key]))
+            if int(app[key]) > limit:
                 which = " for the first timed tap of this launch" if limits is first_budgets and limit != budgets.get(key) else ""
-                report.fail("app-timings", step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms{which})')
+                over.setdefault(key, []).append((step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms{which})'))
         away = tap.get("afterBackground")
         if away:
             if "sync" not in app or last_sync is None:
@@ -492,6 +501,17 @@ def rule_app_timings(taps, cfg, report):
                 report.fail("app-timings", step, f'the app synced on returning from {away.get("seconds")} s in the background before {ident} (sync count {last_sync} -> {app["sync"]})')
         if "sync" in app:
             last_sync = int(app["sync"])
+    for key, hits in over.items():
+        if len(hits) > allowed:
+            for step, message in hits:
+                report.fail("app-timings", step, message)
+        else:
+            report.count("app-timings-outliers-allowed", len(hits))   # visible in `checked`, not a finding
+    for key, readings in steady.items():
+        ordered = sorted(readings)
+        median = ordered[len(ordered) // 2]
+        if len(readings) >= 3 and median > budgets.get(key, median):   # a median of one or two taps says nothing
+            report.fail("app-timings", "run", f'the app\'s median {key} over {len(readings)} timed taps is {median} ms (limit {budgets[key]} ms): lag, not a freeze')
 
 
 def run(tour_dir, cfg, fixtures, scrolled=None):

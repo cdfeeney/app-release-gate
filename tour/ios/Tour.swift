@@ -346,23 +346,37 @@ final class TourTests: XCTestCase {
 
     /// Make the target hittable and say whether it is: if it is not on screen (or not even in the live tree),
     /// scroll back to the top until the tree stops changing, then walk down until it is hittable or the end.
+    /// A shared simulator freezes for seconds at a time (ConorHealth runs 5d and build-41 attempt 2: a screen that
+    /// had just come back from the background answered nothing, so every row read as unreachable and the tab bar as
+    /// not tappable). An unchanged tree is therefore re-checked a few times, with a pause, before it means "the end".
+    static let frozenRetries = 3
     @discardableResult
     private func reveal(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
         if target.exists && target.isHittable { return true }
-        var last = ""
+        var last = "", unchanged = 0
         for _ in 0..<Self.maxScrollStops {
             if target.exists && target.isHittable { return true }
             let now = normalized(app.debugDescription)
-            if now == last { break }
-            last = now
+            if now == last {
+                unchanged += 1
+                if unchanged >= Self.frozenRetries { break }
+                Thread.sleep(forTimeInterval: 2)
+                continue
+            }
+            last = now; unchanged = 0
             app.swipeDown(velocity: .slow)
         }
-        last = ""
+        last = ""; unchanged = 0
         for _ in 0..<Self.maxScrollStops {
             if target.exists && target.isHittable { return true }
             let now = normalized(app.debugDescription)
-            if now == last { return false }
-            last = now
+            if now == last {
+                unchanged += 1
+                if unchanged >= Self.frozenRetries { return false }
+                Thread.sleep(forTimeInterval: 2)
+                continue
+            }
+            last = now; unchanged = 0
             app.swipeUp(velocity: .slow)
         }
         return target.exists && target.isHittable

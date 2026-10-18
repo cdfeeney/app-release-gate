@@ -224,6 +224,15 @@ def test_taps_without_timing_fail_closed():
     assert not findings(quick, "taps-respond")
 
 
+def test_gate_perf_element_is_a_clock_not_a_screen_text():
+    clean, today = clean_trees()
+    clock = "      StaticText, 0x30, {{0.0, 0.0}, {1.0, 1.0}}, identifier: 'gate-perf', label: 'Timing', value: 'sync=1 n=1 tap=511 write=89 s'\n"
+    with_clock = clean.replace("Path to element:", clock + "Path to element:")
+    assert not findings(run_tour(with_clock, today), "durations-in-minutes"), "the app's clock is read from taps.json, never as a duration on screen"
+    as_text = with_clock.replace("identifier: 'gate-perf'", "identifier: 'coach-clock'")
+    assert findings(run_tour(as_text, today), "durations-in-minutes"), "the same text on any other element is still judged"
+
+
 def test_week_mentions_are_strict_unless_allowed():
     clean, today = clean_trees()
     strict = run_tour(clean, today, config={**CONFIG, "weekAllow": []})
@@ -277,5 +286,6 @@ if __name__ == "__main__":
     test_fixture_rules_apply_to_that_fixture_only()
     test_taps_without_timing_fail_closed()
     test_app_timings_are_the_apps_own_clock()
+    test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

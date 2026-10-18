@@ -99,7 +99,9 @@ def load_tour(tour_dir):
         elements = parse_tree(text)
         if "Element subtree:" not in text or len(elements) < 2:
             raise TourInvalid(f"{entry['tree']} is not a parsable accessibility tree ({len(elements)} elements)")
-        stops.append({**entry, "elements": elements})
+        # gate-perf is the app's clock for the tour (taps.json `app`), not a screen text: the tree dump truncates long
+        # values, and "write=89 s..." read as 89 seconds to durations-in-minutes (ConorHealth run 5).
+        stops.append({**entry, "elements": [e for e in elements if e["identifier"] != "gate-perf"]})
     return stops, taps
 
 

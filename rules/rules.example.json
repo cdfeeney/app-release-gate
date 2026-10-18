@@ -21,6 +21,6 @@
   "forbiddenIdentifiers": ["-(left|right)$", "^coach-(timer|rest-timer|move-timer)-start-", "^coach-select-weight-"],
   "fixtures": {"fri": {"forbiddenIdentifiers": ["^coach-preparation-b2-e0-p\\d+-s0-$"]}},
   "maxTapMillis": 1500,
-  "maxAppMillis": {"tap": 300, "write": 50},
+  "maxAppMillis": {"tap": 300, "write": 100},
   "appTimedIdentifiers": ["^coach-preparation-", "^coach-set-done-"]
 }

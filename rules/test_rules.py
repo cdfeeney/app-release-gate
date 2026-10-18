@@ -188,6 +188,17 @@ def test_app_timings_are_the_apps_own_clock():
     # a sync between two taps with no background step in between (a Save, a Sync now) is allowed
     saved = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "wed/session/step5", "app": {**PERF, "sync": 2, "n": 2}}])
     assert not findings(saved, "app-timings"), saved["findings"]
+    # the first timed tap of a launch has its own, explicit budget; the second tap is back on the general one
+    first = {**CONFIG, "maxFirstAppMillis": {"tap": 1500}}
+    warm = run_tour(clean, today, [{**TICK, "app": {**PERF, "tap": 1200}}, {**TICK, "step": "wed/session/step5", "app": {**PERF, "tap": 120, "n": 2}}], config=first)
+    assert not findings(warm, "app-timings"), warm["findings"]
+    second = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "wed/session/step5", "app": {**PERF, "tap": 1200, "n": 2}}], config=first)
+    found = findings(second, "app-timings")
+    assert len(found) == 1 and "1200 ms (tap)" in found[0]["message"] and "limit 300 ms" in found[0]["message"], found
+    over = run_tour(clean, today, [{**TICK, "app": {**PERF, "tap": 1600}}], config=first)
+    found = findings(over, "app-timings")
+    assert len(found) == 1 and "limit 1500 ms for the first timed tap" in found[0]["message"], found
+    assert findings(run_tour(clean, today, [{**TICK, "app": {**PERF, "tap": 1200}}]), "app-timings"), "without maxFirstAppMillis the first tap is judged like any other"
     # without budgets or timed identifiers the rule is off, never a silent pass that counts as checked
     off = run_tour(clean, today, [TICK], config={k: v for k, v in CONFIG.items() if k not in ("maxAppMillis", "appTimedIdentifiers")})
     assert not findings(off, "app-timings") and "app-timings" not in off["checked"]

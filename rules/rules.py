@@ -427,10 +427,13 @@ def rule_app_timings(taps, cfg, report):
     """The app's own clocks: after every tap Tour.swift reads an element `gate-perf` ("tap=123 write=4 sync=1") into
     the tap's `app` dict. XCUITest's idle wait includes animations and ~0.5 s of harness overhead, so it cannot tell a
     100 ms tick from a 600 ms one; the app can (owner 10-18: the simulator numbers under-reported the phone).
-    - every key in `maxAppMillis` must stay within its budget;
+    - every key in `maxAppMillis` must stay within its budget; the first timed tap of a launch uses the budgets in
+      `maxFirstAppMillis` where given (ConorHealth run 5c/5d: the first tick after opening a screen costs several
+      times a later one; that cost is budgeted on its own, in the open, not hidden inside a loose general budget);
     - a tap whose identifier matches `appTimedIdentifiers` without `app` fails closed (the screen lost its clock);
     - `sync` must not rise into a tap marked `afterBackground`: an unlock between sets must never run a sync."""
     budgets = {k: int(v) for k, v in cfg.get("maxAppMillis", {}).items()}
+    first_budgets = {**budgets, **{k: int(v) for k, v in cfg.get("maxFirstAppMillis", {}).items()}}
     timed = [re.compile(p) for p in cfg.get("appTimedIdentifiers", [])]
     if not budgets and not timed:
         return
@@ -443,6 +446,7 @@ def rule_app_timings(taps, cfg, report):
             last_sync, last_sample, fixture = None, None, step.split("/")[0]
         report.count("app-timings")
         is_timed = any(p.search(ident) for p in timed)
+        limits = first_budgets if is_timed and last_sample is None else budgets
         if is_timed:
             # every budgeted clock plus `n`, the app's count of completed measurements: a reading that did not advance
             # since the last timed tap is the previous tap's number, not this one's
@@ -453,9 +457,10 @@ def rule_app_timings(taps, cfg, report):
                 report.fail("app-timings", step, f'tapping {ident} left the app\'s timing sample at n={app["n"]} (stale: the previous timed tap was n={last_sample})')
             if "n" in app:
                 last_sample = int(app["n"])
-        for key, limit in budgets.items():
+        for key, limit in limits.items():
             if key in app and int(app[key]) > limit:
-                report.fail("app-timings", step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms)')
+                which = " for the first timed tap of this launch" if limits is first_budgets and limit != budgets.get(key) else ""
+                report.fail("app-timings", step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms{which})')
         away = tap.get("afterBackground")
         if away:
             if "sync" not in app or last_sync is None:

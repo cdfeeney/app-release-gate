@@ -129,6 +129,7 @@ final class TourTests: XCTestCase {
     private func run(_ flow: Flow, fixture: String, in app: XCUIApplication) {
         seenIdentifiers = []
         seenIdentifierSet = []
+        pendingBackground = nil   // a background step whose next tap never happened must not mark another flow's first tap
         for (i, step) in flow.steps.enumerated() {
             let label = "\(fixture)/\(flow.name)/step\(i)"
             if let id = step.waitFor {
@@ -238,15 +239,17 @@ final class TourTests: XCTestCase {
     }
 
     /// A row that has scrolled under the navigation bar is still reported hittable, and the tap then lands on the
-    /// bar (ConorHealth run 5b: "changed nothing"). Drag the content down until the target sits clear of the bar.
+    /// bar (ConorHealth run 5b: "changed nothing"). A slow swipe moves the content down, then the target is revealed
+    /// again. A press-and-drag is never used: started on a text field it raised the keyboard and blocked every
+    /// later tap (run 5d).
     private func clearOfBars(_ target: XCUIElement, in app: XCUIApplication) {
-        let bar = app.navigationBars.firstMatch
-        guard bar.exists, target.exists else { return }
-        let overlap = (bar.frame.maxY + 12) - target.frame.minY
-        guard overlap > 0 else { return }
-        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: overlap + 40)))
-        Thread.sleep(forTimeInterval: 0.5)
+        for _ in 0..<2 {
+            let bar = app.navigationBars.firstMatch
+            guard bar.exists, target.exists, target.frame.minY < bar.frame.maxY + 12 else { return }
+            app.swipeDown(velocity: .slow)
+            Thread.sleep(forTimeInterval: 0.4)
+            guard reveal(target, in: app) else { return }
+        }
     }
 
     /// Work an app defers past the tap (a debounced write 700 ms later) escapes `idleMs`, so after `settleDelay` a

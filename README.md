@@ -42,7 +42,9 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   value reads `tap=123 write=4 sync=1 n=7` (the app's tap-to-idle time, its last write, how many full syncs it has
   run, how many tap measurements it has completed) into the tap's `app` dict. XCUITest's idle wait includes
   animations and about half a second of harness overhead, so it cannot tell a 100 ms tick from a 600 ms one; the app
-  can. Each key in `maxAppMillis` has its own budget; a tap whose identifier matches `appTimedIdentifiers` must carry
+  can. Each key in `maxAppMillis` has its own budget (the first timed tap of each launch may have its own in
+  `maxFirstAppMillis`, so a known first-change cost is budgeted in the open rather than hidden in a loose general
+  budget); a tap whose identifier matches `appTimedIdentifiers` must carry
   every budgeted key and an `n` that advanced since the last timed tap of that launch (a stale reading is the previous
   tap's number); and `sync` must be readable on both sides of a `background` step and must not rise across it (an
   unlock between sets must never run a sync). The rule is off when neither key is configured.

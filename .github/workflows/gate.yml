@@ -5,6 +5,7 @@ name: Release gate
 #   gate:
 #     uses: cdfeeney/app-release-gate/.github/workflows/gate.yml@main
 #     with: { container: "-project MyApp.xcodeproj", scheme: MyApp, ui_test_target: MyAppUITests, gate_dir: MyAppUITests/Gate }
+#     # optional: prepare: "brew install xcodegen && xcodegen generate"  (apps whose project is generated, not committed)
 #     secrets: inherit
 #   upload:
 #     needs: [tests, gate]
@@ -39,6 +40,10 @@ on:
       runtime:
         type: string
         default: com.apple.CoreSimulator.SimRuntime.iOS-26-2
+      prepare:
+        description: Optional shell run in the app checkout before the tour builds, e.g. "brew install xcodegen && xcodegen generate" for apps that generate their project
+        type: string
+        default: ""
       developer_dir:
         description: Xcode to use; empty keeps the runner default
         type: string
@@ -90,6 +95,12 @@ jobs:
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$SIMULATOR_ID"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+      - name: Prepare the app project
+        if: inputs.prepare != ''
+        env:
+          PREPARE: ${{ inputs.prepare }}
+        run: bash -euo pipefail -c "$PREPARE"
 
       - name: Run the tour
         timeout-minutes: 35

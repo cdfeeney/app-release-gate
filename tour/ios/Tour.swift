@@ -46,6 +46,7 @@ final class TourTests: XCTestCase {
         var expectChange: Bool?
         var typeText: String?
         var sleep: Double?
+        var background: Double?   // seconds in the background (Home, wait, reactivate): the owner's lock between sets
         var optional: Bool?
     }
 
@@ -61,6 +62,8 @@ final class TourTests: XCTestCase {
     /// off-screen rows from the live tree, so `tapMatching` searches this union, not just what is on screen now.
     private var seenIdentifiers: [String] = []
     private var seenIdentifierSet = Set<String>()
+    /// The last `background` step, attached to the next tap so the rules can judge what an unlock did to it.
+    private var pendingBackground: [String: Any]?
 
     private var gateDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Gate")
@@ -132,6 +135,7 @@ final class TourTests: XCTestCase {
                 if !element(id, in: app).waitForExistence(timeout: 15) { note("\(label): \(id) never appeared", optional: step.optional) }
             }
             if let seconds = step.sleep { Thread.sleep(forTimeInterval: seconds) }
+            if let seconds = step.background { background(for: seconds, label: label, in: app) }
             if let swipe = step.swipe {
                 if swipe == "down" { app.swipeDown(velocity: .slow) } else { app.swipeUp(velocity: .slow) }
             }
@@ -196,8 +200,40 @@ final class TourTests: XCTestCase {
         let ms = Int(Date().timeIntervalSince(started) * 1000)   // until the tree first differed: includes one tree snapshot (~1 s on a big screen)
         var entry: [String: Any] = ["identifier": id, "step": label, "changed": changed, "expected": expectChange, "ms": ms, "idleMs": idleMs]
         if let settleMs { entry["settleMs"] = settleMs }
+        if let timings = appTimings(in: app) { entry["app"] = timings }
+        if let pendingBackground { entry["afterBackground"] = pendingBackground; self.pendingBackground = nil }
         taps.append(entry)
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
+    }
+
+    /// The app's own clocks, when it publishes them: an element with identifier `gate-perf` whose label (or value)
+    /// reads "tap=123 write=4 sync=1". XCUITest's idle wait includes animations and harness overhead; this is what
+    /// the app measured for its last tap (owner 10-18: the simulator numbers under-reported what the phone felt).
+    static let appTimingsIdentifier = "gate-perf"
+    private func appTimings(in app: XCUIApplication) -> [String: Int]? {
+        let perf = element(Self.appTimingsIdentifier, in: app)
+        guard perf.exists else { return nil }
+        let text = (perf.value as? String).flatMap { $0.isEmpty ? nil : $0 } ?? perf.label
+        var values: [String: Int] = [:]
+        for pair in text.split(separator: " ") {
+            let parts = pair.split(separator: "=", maxSplits: 1)
+            if parts.count == 2, let n = Int(parts[1]) { values[String(parts[0])] = n }
+        }
+        return values.isEmpty ? nil : values
+    }
+
+    /// Home, wait, reactivate: what the owner does between sets. The next tap carries `afterBackground`
+    /// (seconds away, and how long the app took to be back in the foreground), so the rules can see whether the
+    /// return itself was slow or triggered work the app should not do mid-workout.
+    private func background(for seconds: Double, label: String, in app: XCUIApplication) {
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: seconds)
+        let started = Date()
+        app.activate()
+        if !app.wait(for: .runningForeground, timeout: 15) {
+            note("\(label): the app did not return to the foreground after \(seconds) s in the background", optional: false)
+        }
+        pendingBackground = ["seconds": seconds, "resumeMs": Int(Date().timeIntervalSince(started) * 1000)]
     }
 
     /// Work an app defers past the tap (a debounced write 700 ms later) escapes `idleMs`, so after `settleDelay` a

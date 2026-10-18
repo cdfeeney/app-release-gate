@@ -21,19 +21,27 @@
       {"shot": "after-find"},                           // single screenshot
       {"typeText": "45"},                               // types into the focused field (use after a tap)
       {"swipe": "down"},                                // one slow swipe up|down
-      {"sleep": 1.0}
+      {"sleep": 1.0},
+      {"background": 3}                                 // Home, 3 s away, reactivate: what an owner does between sets
     ]}
   ]
 }
 ```
+
+A `background` step marks the next tap with `afterBackground: {"seconds": 3, "resumeMs": 400}` (how long the app
+took to be back in the foreground). After every tap the tour also reads an element with identifier `gate-perf`, if
+the app has one, whose label reads `tap=123 write=4 sync=1` (whatever the app chooses to clock: its tap-to-redraw
+time, its last write, how many full syncs it has run) into the tap's `app` dict for the `app-timings` rule.
 
 Output per stop: `NNN-<fixture>-<flow>-<name>.png` and `.tree.txt` (the accessibility tree), listed in
 `index.json`; every tap in `taps.json` with `changed: true|false`, `idleMs` (how long the tap call took; XCUITest
 returns only when the app is idle again, so a main-thread stall is inside it), `settleMs` (0.8 s after the tap a
 harmless tap on the centre of the navigation bar is timed; XCUITest waits for the app to be idle before any event,
 so work the app deferred past the tap, such as a debounced write, shows here; absent on screens without a
-navigation bar) and `ms` (until the tree first differed; includes one tree snapshot, about a second on a big
-screen. None proves the intended result appeared: an early spinner counts as a change); `summary.json` with problems (missing
+navigation bar) and `ms` (until the tree first differed; includes one tree snapshot, the 0.8 s settle delay, the
+probe tap and the polling, so it is only a fallback. None proves the intended result appeared: an early spinner
+counts as a change); plus `identifier`, `step` (`<fixture>/<flow>/step<i>`), `expected`, `revealed: false` for a
+control that could not be reached, `app` and `afterBackground` as above; `summary.json` with problems (missing
 identifiers, taps that changed nothing). A non-optional problem fails the tour.
 
 Paths: `TOUR_PATH`/`TOUR_OUT` from the environment (xcodebuild passes `TEST_RUNNER_TOUR_PATH` as

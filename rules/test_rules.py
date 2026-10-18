@@ -53,11 +53,14 @@ CONFIG = {
     "forbiddenIdentifiers": [r"-(left|right)$", r"^coach-(timer|rest-timer|move-timer)-start-"],
     "fixtures": {"wed": {"forbiddenIdentifiers": [r"^coach-select-weight-b3-e1-"]}},
     "maxTapMillis": 1500,
+    "maxAppMillis": {"tap": 300, "write": 50},
+    "appTimedIdentifiers": [r"^coach-preparation-"],
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
              "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text",
-             "forbidden-identifiers", "taps-respond"}
+             "forbidden-identifiers", "taps-respond", "app-timings"}
+TICK = {"identifier": "coach-preparation-b1-c0-s0", "step": "wed/session/step3", "changed": True, "expected": True, "ms": 900, "idleMs": 400}
 SCROLLED = {("session", "session"), ("today", "today")}
 WEEK2 = {"wed": {"week": 2}}
 
@@ -114,7 +117,8 @@ def test_parser():
 
 def test_bad_tour_fails_every_rule():
     result = run_tour(TREE, TODAY, [{"identifier": "coach-dead", "step": "s", "changed": False, "expected": True, "ms": 200},
-                                    {"identifier": "coach-slow", "step": "t", "changed": True, "expected": True, "ms": 3400}])
+                                    {"identifier": "coach-slow", "step": "t", "changed": True, "expected": True, "ms": 3400},
+                                    {**TICK, "app": {"tap": 900, "write": 4, "sync": 1}}])   # the app's own clock: 900 ms for a tick
     failed = {f["rule"] for f in result["findings"]}
     missing = ALL_RULES - failed
     assert not missing, f"rules that should have failed but passed: {missing}\n{json.dumps(result['findings'], indent=1)}"
@@ -133,15 +137,46 @@ def test_bad_tour_fails_every_rule():
                          "coach-select-weight-b3-e1-p0", "coach-timer-start-b1-c2-s0"], forbidden
     slow = findings(result, "taps-respond")
     assert len(slow) == 1 and "coach-slow" in slow[0]["message"] and "3400 ms" in slow[0]["message"], slow
+    app = findings(result, "app-timings")
+    assert len(app) == 1 and "900 ms (tap)" in app[0]["message"] and "limit 300 ms" in app[0]["message"], app
 
 
 def test_clean_tour_passes():
     clean, today = clean_trees()
-    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 420}])
+    result = run_tour(clean, today, [{"identifier": "ok", "step": "s", "changed": True, "expected": True, "ms": 420},
+                                     {**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
+                                     {**TICK, "step": "wed/session/step5", "app": {"tap": 110, "write": 3, "sync": 1},
+                                      "afterBackground": {"seconds": 3, "resumeMs": 400}}])   # an unlock that synced nothing
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
     for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
-                 "no-stale-week", "rows-reachable", "controls-change-screen", "forbidden-identifiers", "taps-respond"):
+                 "no-stale-week", "rows-reachable", "controls-change-screen", "forbidden-identifiers", "taps-respond",
+                 "app-timings"):
         assert result["checked"].get(rule, 0) >= 1, (rule, result["checked"])
+
+
+def test_app_timings_are_the_apps_own_clock():
+    clean, today = clean_trees()
+    # a tick with no app clock on a screen that must publish one fails closed; a tab tap without one is fine
+    silent = run_tour(clean, today, [TICK, {"identifier": "tab-Plan", "step": "wed/plan/step0", "changed": True, "expected": True, "ms": 900, "idleMs": 400}])
+    found = findings(silent, "app-timings")
+    assert len(found) == 1 and "coach-preparation-b1-c0-s0" in found[0]["message"] and "no app timings" in found[0]["message"], found
+    # each budgeted key is judged on its own; keys without a budget (sync) are never a finding by size
+    write = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 80, "sync": 7}}])
+    found = findings(write, "app-timings")
+    assert len(found) == 1 and "80 ms (write)" in found[0]["message"], found
+    # the unlock between sets must not sync: the sync count may not rise into a tap marked afterBackground
+    synced = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
+                                     {**TICK, "step": "wed/session/step5", "app": {"tap": 120, "write": 3, "sync": 2},
+                                      "afterBackground": {"seconds": 3, "resumeMs": 400}}])
+    found = findings(synced, "app-timings")
+    assert len(found) == 1 and "synced on returning from 3 s" in found[0]["message"] and "1 -> 2" in found[0]["message"], found
+    # a sync between two taps with no background step in between (a Save, a Sync now) is allowed
+    saved = run_tour(clean, today, [{**TICK, "app": {"tap": 120, "write": 3, "sync": 1}},
+                                    {**TICK, "step": "wed/session/step5", "app": {"tap": 120, "write": 3, "sync": 2}}])
+    assert not findings(saved, "app-timings"), saved["findings"]
+    # without budgets or timed identifiers the rule is off, never a silent pass that counts as checked
+    off = run_tour(clean, today, [TICK], config={k: v for k, v in CONFIG.items() if k not in ("maxAppMillis", "appTimedIdentifiers")})
+    assert not findings(off, "app-timings") and "app-timings" not in off["checked"]
 
 
 def test_fixture_rules_apply_to_that_fixture_only():
@@ -227,5 +262,6 @@ if __name__ == "__main__":
     test_rows_reachable_only_where_the_tour_scrolled()
     test_fixture_rules_apply_to_that_fixture_only()
     test_taps_without_timing_fail_closed()
+    test_app_timings_are_the_apps_own_clock()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

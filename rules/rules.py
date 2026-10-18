@@ -421,6 +421,38 @@ def rule_taps_respond(taps, cfg, report):
             report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {limit} ms)')
 
 
+def rule_app_timings(taps, cfg, report):
+    """The app's own clocks: after every tap Tour.swift reads an element `gate-perf` ("tap=123 write=4 sync=1") into
+    the tap's `app` dict. XCUITest's idle wait includes animations and ~0.5 s of harness overhead, so it cannot tell a
+    100 ms tick from a 600 ms one; the app can (owner 10-18: the simulator numbers under-reported the phone).
+    - every key in `maxAppMillis` must stay within its budget;
+    - a tap whose identifier matches `appTimedIdentifiers` without `app` fails closed (the screen lost its clock);
+    - `sync` must not rise into a tap marked `afterBackground`: an unlock between sets must never run a sync."""
+    budgets = {k: int(v) for k, v in cfg.get("maxAppMillis", {}).items()}
+    timed = [re.compile(p) for p in cfg.get("appTimedIdentifiers", [])]
+    if not budgets and not timed:
+        return
+    last_sync = None
+    for tap in taps:
+        if tap.get("revealed") is False:
+            continue
+        ident, step, app = tap.get("identifier", ""), tap.get("step", ""), tap.get("app")
+        report.count("app-timings")
+        if app is None:
+            if any(p.search(ident) for p in timed):
+                report.fail("app-timings", step, f'tapping {ident} recorded no app timings (no gate-perf element on that screen)')
+            continue
+        for key, limit in budgets.items():
+            if key in app and int(app[key]) > limit:
+                report.fail("app-timings", step, f'the app took {int(app[key])} ms ({key}) after tapping {ident} (limit {limit} ms)')
+        if "sync" in app:
+            sync = int(app["sync"])
+            away = tap.get("afterBackground")
+            if away and last_sync is not None and sync > last_sync:
+                report.fail("app-timings", step, f'the app synced on returning from {away.get("seconds")} s in the background before {ident} (sync count {last_sync} -> {sync})')
+            last_sync = sync
+
+
 def run(tour_dir, cfg, fixtures, scrolled=None):
     try:
         stops, taps = load_tour(tour_dir)
@@ -440,6 +472,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_forbidden_text(screens, cfg, report)
     rule_forbidden_identifiers(screens, cfg, report)
     rule_taps_respond(taps, cfg, report)
+    rule_app_timings(taps, cfg, report)
     return {
         "verdict": "PASS" if not report.findings else "FAIL",
         "screens": [f"{s['fixture']}/{s['flow']}" for s in screens],

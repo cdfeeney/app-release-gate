@@ -30,6 +30,10 @@ on:
         description: UI test target that holds the kit's Tour.swift copy, e.g. MyAppUITests
         type: string
         required: true
+      ui_test_dir:
+        description: Folder that holds the UI test target's sources, when it is not the target's name at the repo root (e.g. apple/MyAppUITests)
+        type: string
+        default: ""
       gate_dir:
         description: Directory with tour.json, rules.json, profile.json and fixtures/, e.g. MyAppUITests/Gate
         type: string
@@ -86,7 +90,7 @@ jobs:
           persist-credentials: false
 
       - name: The app's Tour.swift must be the kit's
-        run: python3 .release-gate-kit/scripts/verify-copy.py .release-gate-kit "${{ inputs.ui_test_target }}/Tour.swift"
+        run: python3 .release-gate-kit/scripts/verify-copy.py .release-gate-kit "${{ inputs.ui_test_dir || inputs.ui_test_target }}/Tour.swift"
 
       - name: Boot an iPhone
         run: |

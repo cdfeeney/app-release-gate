@@ -46,6 +46,7 @@ on:
         type: string
         default: com.apple.CoreSimulator.SimDeviceType.iPhone-16
       runtime:
+        description: Simulator runtime identifier, or `latest` for the newest iOS runtime the runner's Xcode carries
         type: string
         default: com.apple.CoreSimulator.SimRuntime.iOS-26-2
       prepare:
@@ -115,7 +116,10 @@ jobs:
       - name: Boot an iPhone
         run: |
           if [ -n "${{ inputs.developer_dir }}" ]; then echo "DEVELOPER_DIR=${{ inputs.developer_dir }}" >> "$GITHUB_ENV"; export DEVELOPER_DIR="${{ inputs.developer_dir }}"; fi
-          SIMULATOR_ID=$(xcrun simctl create "Release gate" "${{ inputs.device_type }}" "${{ inputs.runtime }}")
+          RUNTIME="${{ inputs.runtime }}"
+          # `latest`: the newest installed iOS runtime, for a runner image whose Xcode carries a different one than the default.
+          if [ "$RUNTIME" = latest ]; then RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x["platform"]=="iOS" and x["isAvailable"]]; print(sorted(r, key=lambda x: [int(p) for p in x["version"].split(".")])[-1]["identifier"])'); echo "runtime: $RUNTIME"; fi
+          SIMULATOR_ID=$(xcrun simctl create "Release gate" "${{ inputs.device_type }}" "$RUNTIME")
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$SIMULATOR_ID"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b

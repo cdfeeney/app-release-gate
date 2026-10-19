@@ -1,0 +1,13 @@
+{
+  "verdict": "FAIL",
+  "screens": [],
+  "stops": 0,
+  "checked": {},
+  "findings": [
+    {
+      "rule": "tour-valid",
+      "where": "",
+      "message": "index.json missing"
+    }
+  ]
+}

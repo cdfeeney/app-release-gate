@@ -204,6 +204,20 @@ def test_rows_reachable_only_where_the_tour_scrolled():
     assert rules.scrolled_from_manifest(None) is None
 
 
+def test_small_tap_targets_fail_only_when_enabled():
+    small = TREE.replace("{{16.0, 500.0}, {120.0, 44.0}}, identifier: 'coach-timer-start-b1-c2-s0'",
+                         "{{16.0, 500.0}, {120.0, 20.0}}, identifier: 'coach-timer-start-b1-c2-s0'")
+    bar = small.replace("    Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}\n",
+                        "    Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}\n      NavigationBar, 0x30, {{0.0, 59.0}, {393.0, 54.0}}\n"
+                        "        Button, 0x31, {{8.0, 64.0}, {30.0, 30.0}}, identifier: 'BackButton', label: 'Back'\n")
+    assert not findings(run_tour(small, TODAY), "tap-targets")                       # off by default
+    on = {**CONFIG, "minTapPoints": 44}
+    hit = findings(run_tour(bar, TODAY, config=on), "tap-targets")
+    assert len(hit) == 1 and "coach-timer-start-b1-c2-s0" in hit[0]["message"] and "120x20" in hit[0]["message"], hit
+    allowed = findings(run_tour(bar, TODAY, config={**on, "tapTargetAllow": [r"^coach-timer-"]}), "tap-targets")
+    assert not allowed, allowed
+
+
 def test_empty_or_broken_tour_fails():
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "index.json").write_text("[]", encoding="utf-8")
@@ -228,4 +242,5 @@ if __name__ == "__main__":
     test_fixture_rules_apply_to_that_fixture_only()
     test_taps_without_timing_fail_closed()
     test_empty_or_broken_tour_fails()
+    test_small_tap_targets_fail_only_when_enabled()
     print("rules self-check: ok")

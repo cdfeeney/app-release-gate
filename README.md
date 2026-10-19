@@ -40,6 +40,8 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   one tree snapshot and is only the fallback for older tours.)
 - `instruction-not-live`: instruction text is never a tappable item
 - `forbidden-text`: `Optional(`, `nil`, `NaN`, placeholders
+- `tap-targets` (opt-in, `minTapPoints`): every button, link and cell outside system bars is at least that many points in
+  both directions; `tapTargetAllow` exempts identifiers. Owner 10-18: "it's hard to click and edit my dojo"
 - `forbidden-identifiers`: controls that must never be on screen, by accessibility identifier (per-side rows, in-app
   hold timers, a weight-chip grid). `forbiddenText` and `forbiddenIdentifiers` also take a per-fixture list under
   `"fixtures": {"<name>": {...}}`, for a control that is wrong only with that fixture's data (Find rows on an exercise

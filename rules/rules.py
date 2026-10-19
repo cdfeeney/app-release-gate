@@ -396,6 +396,47 @@ def rule_forbidden_identifiers(screens, cfg, report):
                                 f'{el["type"]} "{ident}" ({texts(el)[:60]}) matches forbidden identifier {p.pattern}')
 
 
+BAR_TYPES = ("NavigationBar", "TabBar", "Toolbar", "Keyboard")
+TAPPABLE = ("Button", "Link", "Cell")   # system switches are sized by iOS
+
+
+def _outside_bars(elements):
+    """(element, depth of the enclosing system bar or None) in document order."""
+    bar_depth = None
+    for el in elements:
+        if bar_depth is not None and el["depth"] <= bar_depth:
+            bar_depth = None
+        if el["type"] in BAR_TYPES:
+            bar_depth = el["depth"]
+        yield el, bar_depth
+
+
+def rule_tap_targets(screens, cfg, report):
+    """Every tappable control is at least `minTapPoints` tall and wide (Apple's minimum is 44 pt). Owner 10-18
+    (Conor Mastery): "it's hard to click and edit my dojo". Opt-in per app (0 or absent = off) so an app turns it on
+    once its controls are sized; system bar items are skipped, and `tapTargetAllow` lists identifiers to exempt."""
+    minimum = float(cfg.get("minTapPoints", 0) or 0)
+    if minimum <= 0:
+        return
+    allow = [re.compile(p) for p in cfg.get("tapTargetAllow", [])]
+    for screen in screens:
+        reported = set()
+        # Each stop's own tree: the de-duplicated union drops repeated layout elements, losing where a bar ends.
+        for el, bar_depth in (pair for stop in screen["stops"] for pair in _outside_bars(stop["elements"])):
+            if bar_depth is not None or el["type"] not in TAPPABLE or not el["frame"]:
+                continue
+            _, _, w, h = el["frame"]
+            if w <= 0 or h <= 0:
+                continue
+            report.count("tap-targets")
+            key = element_key(el)
+            if min(w, h) >= minimum or key in reported or any(p.search(el["identifier"]) for p in allow):
+                continue
+            reported.add(key)
+            report.fail("tap-targets", f"{screen['fixture']}/{screen['flow']}",
+                        f'{el["type"]} "{el["identifier"] or texts(el)[:40]}" is {w:.0f}x{h:.0f} pt; tap targets need {minimum:.0f} pt')
+
+
 def rule_taps_respond(taps, cfg, report):
     """Every tap must be answered within maxTapMillis (owner 10-17: "buttons take three or four seconds").
     Tour.swift records `idleMs`, the time the tap call itself took (XCUITest returns only when the app is idle again,
@@ -440,6 +481,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_forbidden_text(screens, cfg, report)
     rule_forbidden_identifiers(screens, cfg, report)
     rule_taps_respond(taps, cfg, report)
+    rule_tap_targets(screens, cfg, report)
     return {
         "verdict": "PASS" if not report.findings else "FAIL",
         "screens": [f"{s['fixture']}/{s['flow']}" for s in screens],

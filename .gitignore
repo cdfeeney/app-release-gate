@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .DS_Store
+rules-report.json
+__pycache__/

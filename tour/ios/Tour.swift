@@ -183,6 +183,14 @@ final class TourTests: XCTestCase {
             return
         }
         clearOfBars(target, in: app)
+        // The swipe can dismiss a sheet the target lived in (NextBar run 10): a vanished target is a finding, not a crash.
+        guard target.exists else {
+            if optional != true {
+                taps.append(["identifier": id, "step": label, "changed": false, "expected": expectChange, "revealed": false])
+            }
+            note("\(label): \(id) disappeared while clearing the navigation bar", optional: optional)
+            return
+        }
         let before = normalized(app.debugDescription)
         // tap() returns once the app is idle again, so a main-thread stall after the tap lands in `ms`
         // (owner 10-17: "buttons take three or four seconds"); the rules compare it with maxTapMillis.
@@ -245,7 +253,9 @@ final class TourTests: XCTestCase {
     private func clearOfBars(_ target: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<2 {
             let bar = app.navigationBars.firstMatch
-            guard bar.exists, target.exists, target.frame.minY < bar.frame.maxY + 12 else { return }
+            // Only when the tap point itself (the frame's centre) is under the bar. A row just below the bar taps
+            // fine, and swiping down on a sheet's first row dismisses the sheet (NextBar run 10).
+            guard bar.exists, target.exists, target.frame.midY < bar.frame.maxY + 4 else { return }
             app.swipeDown(velocity: .slow)
             Thread.sleep(forTimeInterval: 0.4)
             guard reveal(target, in: app) else { return }

@@ -76,7 +76,7 @@ Every bug an owner confirms becomes one more rule here, and then applies to ever
    - `profile.json` – `user`, `hates`, `context` for the blind reader.
    - `fixtures/*.json` – real sessions/data with private fields scrubbed.
    Keep only `.swift`/`.json` in here if the app exports an allowlisted build copy.
-3. In the app's release workflow add the `gate` job (see the header of `gate.yml`) and make the upload/deploy job `needs: [tests, gate]` with `if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'`. Remove any input that lets a session approve its own upload.
+3. In the app's release workflow add the `gate` job (see the header of `gate.yml`; pass `configuration: Release` when the app's Debug simulator build has no JS bundle, as a React Native app without Metro) and make the upload/deploy job `needs: [tests, gate]` with `if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'`. Remove any input that lets a session approve its own upload.
 4. The repo (or the public build copy) needs the `CLAUDE_CODE_OAUTH_TOKEN` secret for the reader. An app whose source
    reaches the runner encrypted (Sunday's public build copy) also sets `PREPARE_SECRET`: the prepare shell is the only
    step that sees it, and uses it to decrypt and generate the project before the tour builds.

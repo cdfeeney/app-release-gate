@@ -55,6 +55,10 @@ on:
       kit_ref:
         type: string
         default: main
+      configuration:
+        description: Xcode build configuration for the tour. Release for an app whose Debug simulator build has no JS bundle (React Native expects Metro in Debug)
+        type: string
+        default: Debug
       claude_code_version:
         type: string
         default: "2.1.282"
@@ -117,13 +121,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tour"
           set +e
-          xcodebuild ${{ inputs.container }} -scheme "${{ inputs.scheme }}" -configuration Debug \
+          xcodebuild ${{ inputs.container }} -scheme "${{ inputs.scheme }}" -configuration "${{ inputs.configuration }}" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             -resultBundlePath "$RUNNER_TEMP/tour.xcresult" \
             -only-testing:"${{ inputs.ui_test_target }}/TourTests" \
             -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES \
             test > "$RUNNER_TEMP/tour/xcodebuild.log" 2>&1
           XCODEBUILD_STATUS=$?
           set -e

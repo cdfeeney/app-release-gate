@@ -59,6 +59,10 @@ on:
         description: Xcode build configuration for the tour. Release for an app whose Debug simulator build has no JS bundle (React Native expects Metro in Debug)
         type: string
         default: Debug
+      private_log:
+        description: Keep the app's xcodebuild log off the public record (an app whose source must stay private). The tour artifact carries it encrypted with PREPARE_SECRET (or not at all), and a failure prints only its line and error counts
+        type: boolean
+        default: false
       claude_code_version:
         type: string
         default: "2.1.282"
@@ -70,6 +74,14 @@ on:
       verdict:
         description: PASS only when the tour ran, every rule passed and the blind reader passed
         value: ${{ jobs.verdict.outputs.verdict }}
+
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: Claude Code OAuth token for the blind reader
+        required: true
+      PREPARE_SECRET:
+        description: Optional. The only secret the prepare shell sees (an encrypted app source's passphrase); with private_log it also seals the build log
+        required: false
 
 permissions:
   contents: read
@@ -131,8 +143,12 @@ jobs:
             test > "$RUNNER_TEMP/tour/xcodebuild.log" 2>&1
           XCODEBUILD_STATUS=$?
           set -e
-          grep -E "error:|Test Case|\*\* TEST|TourTests" "$RUNNER_TEMP/tour/xcodebuild.log" | tail -40 || true
-          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json (xcodebuild exit $XCODEBUILD_STATUS)"; tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
+          if [ "${{ inputs.private_log }}" = "true" ]; then
+            echo "xcodebuild exit $XCODEBUILD_STATUS; $(wc -l < "$RUNNER_TEMP/tour/xcodebuild.log") log lines, $(grep -c 'error:' "$RUNNER_TEMP/tour/xcodebuild.log" || true) with error: (private_log: the log is sealed in the tour artifact)"
+          else
+            grep -E "error:|Test Case|\*\* TEST|TourTests" "$RUNNER_TEMP/tour/xcodebuild.log" | tail -40 || true
+          fi
+          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json (xcodebuild exit $XCODEBUILD_STATUS)"; [ "${{ inputs.private_log }}" = "true" ] || tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
           python3 - "$RUNNER_TEMP/tour" "$XCODEBUILD_STATUS" <<'EOF'
           import json, os, sys
           tour, status = sys.argv[1], int(sys.argv[2])
@@ -143,6 +159,15 @@ jobs:
           for p in summary.get("problems", []): print("  TOUR PROBLEM:", p)
           sys.exit(0 if status == 0 and index and not bad and not summary.get("problems") else 1)
           EOF
+
+      - name: Seal the build log (private_log)
+        if: always() && inputs.private_log
+        env:
+          PREPARE_SECRET: ${{ secrets.PREPARE_SECRET }}
+        run: |
+          log="$RUNNER_TEMP/tour/xcodebuild.log"
+          if [ -f "$log" ] && [ -n "$PREPARE_SECRET" ]; then printf '%s' "$PREPARE_SECRET" | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 --output "$log.gpg" "$log"; fi
+          rm -f "$log"
 
       - name: Upload the tour
         if: always()

@@ -406,6 +406,9 @@ def rule_no_overlapping_text(screens, cfg, report):
                 for b in labelled[i + 1:]:
                     report.count("no-overlapping-text")
                     bx, by, bw, bh = b["frame"]
+                    # React Native reports each text twice (the view and its label) with one frame: one text, not an overlap.
+                    if texts(a) == texts(b) and a["frame"] == b["frame"]:
+                        continue
                     w, h = min(ax + aw, bx + bw) - max(ax, bx), min(ay + ah, by + bh) - max(ay, by)
                     if w <= 0 or h <= 0 or w * h <= 0.5 * min(aw * ah, bw * bh):
                         continue

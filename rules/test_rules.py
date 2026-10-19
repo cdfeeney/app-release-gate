@@ -307,6 +307,8 @@ def test_overlapping_text_is_a_finding():
     over = today.replace("Path to element:", "      StaticText, 0x30, {{40.0, 300.0}, {120.0, 24.0}}, label: 'Settings'\n"
                          "      StaticText, 0x31, {{44.0, 304.0}, {100.0, 20.0}}, label: 'Settings'\n"
                          "      StaticText, 0x32, {{40.0, 340.0}, {120.0, 24.0}}, label: 'Beside'\n"
+                         "      StaticText, 0x34, {{40.0, 380.0}, {120.0, 24.0}}, label: 'Twice'\n"
+                         "      StaticText, 0x35, {{40.0, 380.0}, {120.0, 24.0}}, label: 'Twice'\n"
                          "      StaticText, 0x33, {{160.0, 340.0}, {100.0, 24.0}}, label: 'each other'\nPath to element:")
     found = findings(run_tour(clean, over, config=on), "no-overlapping-text")
     assert len(found) == 1 and "Settings" in found[0]["message"], found

@@ -255,7 +255,8 @@ final class TourTests: XCTestCase {
             let bar = app.navigationBars.firstMatch
             // Only when the tap point itself (the frame's centre) is under the bar. A row just below the bar taps
             // fine, and swiping down on a sheet's first row dismisses the sheet (NextBar run 10).
-            guard bar.exists, target.exists, target.frame.midY < bar.frame.maxY + 4 else { return }
+            guard bar.exists, target.exists, target.frame.midY < bar.frame.maxY + 4,
+                  target.frame.maxY > bar.frame.maxY + 4 else { return }   // a button IN the bar (Close) is not under it
             app.swipeDown(velocity: .slow)
             Thread.sleep(forTimeInterval: 0.4)
             guard reveal(target, in: app) else { return }

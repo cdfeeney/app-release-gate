@@ -41,6 +41,8 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   inside it; and `settleMs`, the idle wait a harmless probe tap met 0.8 s later, so work the app deferred past the
   tap (a debounced write) counts too. The larger of the two is judged. (`ms`, until the tree first differed, includes
   one tree snapshot and is only the fallback for older tours.)
+- `slowTapAllow`: named exceptions to `maxTapMillis`, each `{identifier, maxMillis, why}`; an entry without a `why` is
+  ignored, so no budget is raised silently (NextBar: the simulator's first keyboard takes 2-4 s)
 - `app-timings`: the app's own clocks. After every tap the tour reads an element with identifier `gate-perf` whose
   value reads `tap=123 write=4 sync=1 n=7` (the app's tap-to-idle time, its last write, how many full syncs it has
   run, how many tap measurements it has completed) into the tap's `app` dict. XCUITest's idle wait includes

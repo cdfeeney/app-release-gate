@@ -428,10 +428,16 @@ def rule_taps_respond(taps, cfg, report):
     about a second on a big screen, so it is only the fallback for older tours). A tap that was performed but carries
     no timing is a finding, never a silent skip: a tour copy older than these rules proves nothing about latency."""
     limit = int(cfg.get("maxTapMillis", 1500))
+    # Named exceptions only, each with its reason: {"identifier": "^username\\.field$", "maxMillis": 6000, "why": "..."}.
+    # An entry without a "why" is ignored, so no budget is ever raised silently.
+    allow = [(re.compile(a["identifier"]), int(a["maxMillis"])) for a in cfg.get("slowTapAllow", [])
+             if a.get("identifier") and a.get("maxMillis") and a.get("why")]
     for tap in taps:
         if tap.get("revealed") is False:
             continue   # never tapped; controls-change-screen reports it
         report.count("taps-respond")
+        ident = tap.get("identifier") or ""
+        tap_limit = next((m for r, m in allow if r.search(ident)), limit)
         if "idleMs" in tap:
             # settleMs: the idle wait a probe tap met 0.8 s later, i.e. work the app deferred past the tap
             took, what = int(tap["idleMs"]), "to go idle after the tap"
@@ -442,8 +448,8 @@ def rule_taps_respond(taps, cfg, report):
         else:
             report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} recorded no timing (Tour.swift copy older than the rules)')
             continue
-        if took > limit:
-            report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {limit} ms)')
+        if took > tap_limit:
+            report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {tap_limit} ms)')
 
 
 def rule_app_timings(taps, cfg, report):

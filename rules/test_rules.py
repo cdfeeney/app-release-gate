@@ -299,6 +299,19 @@ def test_content_in_bounds_only_for_listed_identifiers():
     assert not findings(run_tour(spill, TODAY), "content-in-bounds")     # off unless configured
 
 
+def test_slow_tap_allow_needs_a_reason():
+    taps = [{"identifier": "username.field", "step": "s/onb/step3", "changed": True, "expected": True, "idleMs": 4200},
+            {"identifier": "other", "step": "s/onb/step4", "changed": True, "expected": True, "idleMs": 4200}]
+    base = {**CONFIG, "maxTapMillis": 3000}
+    def slow(cfg):
+        return sorted(f["message"].split()[1] for f in findings(run_tour(clean_trees()[0], clean_trees()[1], taps=taps, config=cfg), "taps-respond"))
+    assert slow(base) == ["other", "username.field"]
+    allowed = {**base, "slowTapAllow": [{"identifier": r"^username\.field$", "maxMillis": 6000, "why": "cold simulator keyboard"}]}
+    assert slow(allowed) == ["other"]
+    no_reason = {**base, "slowTapAllow": [{"identifier": r"^username\.field$", "maxMillis": 6000}]}
+    assert slow(no_reason) == ["other", "username.field"]
+
+
 def test_empty_or_broken_tour_fails():
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "index.json").write_text("[]", encoding="utf-8")
@@ -325,5 +338,6 @@ if __name__ == "__main__":
     test_app_timings_are_the_apps_own_clock()
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()
+    test_slow_tap_allow_needs_a_reason()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

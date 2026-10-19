@@ -104,6 +104,9 @@ jobs:
         if: inputs.prepare != ''
         env:
           PREPARE: ${{ inputs.prepare }}
+          # An app whose source arrives encrypted (Sunday's public build copy) decrypts it here: the caller's
+          # PREPARE_SECRET, when it has one, is the only secret the prepare shell sees.
+          PREPARE_SECRET: ${{ secrets.PREPARE_SECRET }}
         run: bash -euo pipefail -c "$PREPARE"
 
       - name: Run the tour

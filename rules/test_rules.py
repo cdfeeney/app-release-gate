@@ -299,6 +299,21 @@ def test_content_in_bounds_only_for_listed_identifiers():
     assert not findings(run_tour(spill, TODAY), "content-in-bounds")     # off unless configured
 
 
+def test_overlapping_text_is_a_finding():
+    """Sunday 2026-10-18: a native sheet bar's title drawn over the screen's own title hid it and its close button."""
+    clean, today = clean_trees()
+    on = {**CONFIG, "overlapCheck": True}
+    assert not findings(run_tour(clean, today, config=on), "no-overlapping-text")
+    over = today.replace("Path to element:", "      StaticText, 0x30, {{40.0, 300.0}, {120.0, 24.0}}, label: 'Settings'\n"
+                         "      StaticText, 0x31, {{44.0, 304.0}, {100.0, 20.0}}, label: 'Settings'\n"
+                         "      StaticText, 0x32, {{40.0, 340.0}, {120.0, 24.0}}, label: 'Beside'\n"
+                         "      StaticText, 0x33, {{160.0, 340.0}, {100.0, 24.0}}, label: 'each other'\nPath to element:")
+    found = findings(run_tour(clean, over, config=on), "no-overlapping-text")
+    assert len(found) == 1 and "Settings" in found[0]["message"], found
+    assert not findings(run_tour(clean, over), "no-overlapping-text"), "off unless the app opts in"
+    assert not findings(run_tour(clean, over, config={**on, "overlapAllow": ["^Settings$"]}), "no-overlapping-text")
+
+
 def test_empty_or_broken_tour_fails():
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "index.json").write_text("[]", encoding="utf-8")
@@ -325,5 +340,6 @@ if __name__ == "__main__":
     test_app_timings_are_the_apps_own_clock()
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()
+    test_overlapping_text_is_a_finding()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

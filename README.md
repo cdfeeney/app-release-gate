@@ -60,6 +60,11 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   `"fixtures": {"<name>": {...}}`, for a control that is wrong only with that fixture's data (Find rows on an exercise
   whose weight the fixture's history already knows)
 
+- `no-overlapping-text` (opt-in, `overlapCheck: true`): no two texts drawn over each other at one stop (Sunday
+  2026-10-18: a native sheet bar's title was painted over the screen's own title and close button, "the top gets cut
+  off"). Content scrolled under a floating tab bar overlaps in the tree too, so `overlapAllow` exempts such text
+  (the bar's labels) and the rule stays off until an app opts in
+
 Every bug an owner confirms becomes one more rule here, and then applies to every app.
 
 ## Add an app (four files + one workflow job)
@@ -72,7 +77,9 @@ Every bug an owner confirms becomes one more rule here, and then applies to ever
    - `fixtures/*.json` – real sessions/data with private fields scrubbed.
    Keep only `.swift`/`.json` in here if the app exports an allowlisted build copy.
 3. In the app's release workflow add the `gate` job (see the header of `gate.yml`) and make the upload/deploy job `needs: [tests, gate]` with `if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'`. Remove any input that lets a session approve its own upload.
-4. The repo (or the public build copy) needs the `CLAUDE_CODE_OAUTH_TOKEN` secret for the reader.
+4. The repo (or the public build copy) needs the `CLAUDE_CODE_OAUTH_TOKEN` secret for the reader. An app whose source
+   reaches the runner encrypted (Sunday's public build copy) also sets `PREPARE_SECRET`: the prepare shell is the only
+   step that sees it, and uses it to decrypt and generate the project before the tour builds.
 
 Write `tour.json` from the design's list of screens and controls, not from the code.
 

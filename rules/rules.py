@@ -387,6 +387,34 @@ def fixture_patterns(cfg, fixture, key, default=()):
     return [re.compile(p) for p in list(cfg.get(key, list(default))) + list(own)]
 
 
+def rule_no_overlapping_text(screens, cfg, report):
+    """No two texts drawn over each other at one scroll stop. Sunday 2026-10-18: the native sheet bar's title was
+    painted over the screen's own title and close button (the owner's "top gets cut off"). Overlap counts when the
+    smaller frame is more than half covered; `overlapAllow` patterns exempt text meant to layer (a badge on a photo).
+    Opt-in (`overlapCheck: true`): content scrolled under a floating tab bar or a translucent navigation bar also
+    overlaps in the tree (ConorHealth gate 5 replay: 12 such findings), so an app turns it on with its bars allowed."""
+    if not cfg.get("overlapCheck"):
+        return
+    allow = [re.compile(p) for p in cfg.get("overlapAllow", [])]
+    for screen in screens:
+        reported = set()
+        for stop in screen["stops"]:
+            labelled = [el for el in stop["elements"] if el["type"] == "StaticText" and el["frame"] and el["frame"][2] > 0
+                        and el["frame"][3] > 0 and texts(el).strip() and not any(a.search(texts(el)) for a in allow)]
+            for i, a in enumerate(labelled):
+                ax, ay, aw, ah = a["frame"]
+                for b in labelled[i + 1:]:
+                    report.count("no-overlapping-text")
+                    bx, by, bw, bh = b["frame"]
+                    w, h = min(ax + aw, bx + bw) - max(ax, bx), min(ay + ah, by + bh) - max(ay, by)
+                    if w <= 0 or h <= 0 or w * h <= 0.5 * min(aw * ah, bw * bh):
+                        continue
+                    key = (texts(a), texts(b))
+                    if key not in reported:
+                        reported.add(key)
+                        report.fail("no-overlapping-text", f"{screen['fixture']}/{screen['flow']}", f'"{texts(a)}" is drawn over "{texts(b)}" ({stop["png"]})')
+
+
 def rule_forbidden_text(screens, cfg, report):
     """App-specific text that must never appear (placeholders, debug strings, "nil", "Optional(")."""
     default = (r"Optional\(", r"\bnil\b", r"\bNaN\b", r"\bundefined\b")
@@ -531,6 +559,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_content_in_bounds(screens, cfg, report)
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
+    rule_no_overlapping_text(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)
     rule_forbidden_identifiers(screens, cfg, report)
     rule_taps_respond(taps, cfg, report)

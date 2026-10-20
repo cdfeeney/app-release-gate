@@ -312,6 +312,20 @@ def test_slow_tap_allow_needs_a_reason():
     assert slow(no_reason) == ["other", "username.field"]
 
 
+def test_a_decade_is_not_seconds():
+    """NextBar: "regulars since the '70s." read as 70 seconds."""
+    def check(text):
+        report = rules.Report()
+        screen = {"fixture": "f", "flow": "x/y", "elements": [
+            {"type": "StaticText", "identifier": "", "label": text, "value": "", "placeholderValue": ""}]}
+        rules.rule_durations_in_minutes([screen], {}, report)
+        return [f["message"] for f in report.findings]
+    assert check("Regulars since the '70s.") == []
+    assert check("Open since the 1990s") == []
+    assert check("Rest 90 s") != []
+    assert check("Rest 120 seconds") != []
+
+
 def test_every_control_pressed():
     """NextBar 2026-10-20: a past-night row and New group's Create sat on toured screens and nobody pressed them."""
     def el(t, ident="", label="", frame=(0, 0, 100, 44), depth=4):
@@ -382,6 +396,7 @@ if __name__ == "__main__":
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()
     test_slow_tap_allow_needs_a_reason()
+    test_a_decade_is_not_seconds()
     test_every_control_pressed()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

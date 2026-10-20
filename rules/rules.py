@@ -272,11 +272,15 @@ def rule_durations_in_minutes(screens, cfg, report):
     """Any duration at or above the threshold must not be shown in seconds."""
     threshold = int(cfg.get("minutesThreshold", 60))
     allow = [re.compile(p) for p in cfg.get("durationAllow", [])]
-    seconds = re.compile(r"(?<![\d.])(\d[\d,]*)\s?(?:s|sec|secs|seconds)\b")
+    seconds = re.compile(r"(?<![\d.\'\u2019])(\d[\d,]*)\s?(?:s|sec|secs|seconds)\b")
+    # A decade is not a duration: "the '70s", "1990s" (NextBar: "regulars since the '70s." read as 70 seconds).
+    decade = re.compile(r"\d0s$")
     for screen in screens:
         for el in screen["elements"]:
             t = texts(el)
             for m in seconds.finditer(t):
+                if decade.search(m.group(0)):
+                    continue
                 report.count("durations-in-minutes")
                 value = int(m.group(1).replace(",", ""))
                 if value >= threshold and not any(a.search(t) for a in allow):

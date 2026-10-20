@@ -552,10 +552,12 @@ def suite_pressed(suite_dir, families=(), press_patterns=()):
         pressed.update(control_family(m.group(1), families) for m in SUITE_TAP.finditer(text))
         for pattern in press_patterns:
             pressed.update(control_family(m.group(1), families) for m in pattern.finditer(text))
-        for m in SUITE_LET.finditer(text):
-            var = re.escape(m.group(1))
-            if re.search(rf"\b{var}\.(?:tap|doubleTap|press|typeText)\(", text):
-                pressed.add(control_family(m.group(2), families))
+        # A `let v = ...["x"]` counts only when v is tapped in the same func (another test's v is not this one).
+        for body in re.split(r"\n\s*(?:private\s+|override\s+)?func ", text):
+            for m in SUITE_LET.finditer(body):
+                var = re.escape(m.group(1))
+                if re.search(rf"\b{var}\.(?:tap|doubleTap|press|typeText)\(", body[m.end():]):
+                    pressed.add(control_family(m.group(2), families))
     return pressed
 
 
@@ -594,7 +596,8 @@ def rule_every_control_pressed(screens, taps, cfg, report):
     pressed_els = [(s["screen"], el) for s in screens for el in s["elements"]
                    if el["identifier"] and el["type"] in ("Button", "Cell", "Link")
                    and control_family(el["identifier"], families) in covered]
-    covered |= {el["label"] for _, el in pressed_els if el["label"]}
+    # Per screen: an unrelated "Save" elsewhere is not covered by this one.
+    pressed_labels = {(screen, el["label"]) for screen, el in pressed_els if el["label"]}
     pressed_frames = {}
     for screen, el in pressed_els:
         if el["frame"]:
@@ -610,7 +613,7 @@ def rule_every_control_pressed(screens, taps, cfg, report):
             report.count("every-control-pressed")
             # A tab button's identifier is its icon and the tour presses it by label, so either name counts.
             names = [n for n in (ident, label) if n]
-            if inside_pressed(screen["screen"], frame):
+            if inside_pressed(screen["screen"], frame) or (screen["screen"], label) in pressed_labels:
                 continue
             if any(control_family(n, families) in covered for n in names) or any(a.search(n) for a in allow for n in names):
                 continue

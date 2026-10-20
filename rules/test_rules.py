@@ -339,6 +339,16 @@ def test_every_control_pressed():
         return sorted(f["message"].split(" is never")[0] for f in report.findings)
 
     assert missing(cfg) == ["help", "past.row"], missing(cfg)
+    # Codex: a "Create" label on another screen is not covered by this screen's pressed Create.
+    other = {"fixture": "f", "flow": "x/other", "screen": "other", "elements": [el("Button", "", "Friday crew", (0, 400, 90, 44))]}
+    report = rules.Report()
+    rules.rule_every_control_pressed([screen, other], [{"identifier": "plans.row.1"}], cfg, report)
+    assert any(f["message"].startswith("Friday crew") for f in report.findings), report.findings
+    # Codex: another test's variable of the same name does not press this one.
+    (suite / "Scoped.swift").write_text(
+        'func testA() {\n let b = app.buttons["danger.delete"]\n XCTAssertTrue(b.exists)\n}\n'
+        'func testB() {\n let b = app.buttons["safe.ok"]\n b.tap()\n}\n', encoding="utf-8")
+    assert "danger.delete" not in rules.suite_pressed(suite) and "safe.ok" in rules.suite_pressed(suite)
     assert missing({}) == []   # off unless the app opts in
     # A Swift interpolation in the suite names the whole family.
     (suite / "PastTests.swift").write_text('app.buttons["past.\\(id)"].tap()\n', encoding="utf-8")

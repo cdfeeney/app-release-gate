@@ -520,6 +520,106 @@ def rule_app_timings(taps, cfg, report):
             report.fail("app-timings", "run", f'the app\'s median {key} over {len(readings)} timed taps is {median} ms (limit {budgets[key]} ms): lag, not a freeze')
 
 
+# ------------------------------------------------ every control is pressed somewhere
+
+CONTROL_TYPES = {"Button", "Switch", "Toggle", "Link", "TextField", "SecureTextField", "SearchField",
+                 "Slider", "Stepper", "MenuItem", "SegmentedControl", "Cell"}
+SUITE_TAP = re.compile(r'\["((?:[^"\\]|\\.)+)"\](?:\.firstMatch)?\.(?:tap|doubleTap|press|typeText)\(')
+SUITE_LET = re.compile(r'\b(?:let|var)\s+(\w+)\s*=\s*[^\n]*?\["((?:[^"\\]|\\.)+)"\]')
+SWIFT_INTERP = re.compile(r'\\\([^)]*\)')
+
+
+def control_family(key, families=()):
+    """A control and its repeated siblings are one family: list rows, pins and cards differ only by an id.
+    A key matching one of the app's `families` patterns is that pattern; otherwise any dot-separated part
+    holding a digit or a Swift interpolation becomes '*'."""
+    key = SWIFT_INTERP.sub("*", key)
+    for pattern in families:
+        if pattern.search(key):
+            return pattern.pattern
+    return ".".join("*" if (re.search(r"\d", part) or "*" in part) else part for part in key.split("."))
+
+
+def suite_pressed(suite_dir, families=(), press_patterns=()):
+    """Identifiers the UI test suite taps or types into: `app.buttons["x"].tap()`, a `let v = ...["x"]` later
+    `v.tap()` in the same file, or the app's own tap helpers (`pressPatterns`, one capture group each, e.g.
+    `open\(app, row: "([^"]+)"\)`). A literal that is only asserted on is not a press."""
+    pressed = set()
+    for path in sorted(Path(suite_dir).rglob("*.swift")):
+        if path.name == "Tour.swift":
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        pressed.update(control_family(m.group(1), families) for m in SUITE_TAP.finditer(text))
+        for pattern in press_patterns:
+            pressed.update(control_family(m.group(1), families) for m in pattern.finditer(text))
+        for m in SUITE_LET.finditer(text):
+            var = re.escape(m.group(1))
+            if re.search(rf"\b{var}\.(?:tap|doubleTap|press|typeText)\(", text):
+                pressed.add(control_family(m.group(2), families))
+    return pressed
+
+
+def visible_controls(elements):
+    """On-screen controls, skipping the system keyboard (its keys are not the app's). The keyboard's dock keys
+    (Emoji, Dictate) are siblings after the Keyboard element, so everything from it to the end of its level is skipped."""
+    keyboard_depth = None
+    for el in elements:
+        if keyboard_depth is not None and el["depth"] < keyboard_depth:
+            keyboard_depth = None
+        if el["type"] == "Keyboard":
+            keyboard_depth = el["depth"]
+            continue
+        if keyboard_depth is not None or el["type"] not in CONTROL_TYPES or not el["frame"]:
+            continue
+        if el["frame"][2] <= 0 or el["frame"][3] <= 0:
+            continue
+        if el["identifier"] or el["label"]:
+            yield el["identifier"], el["label"], el["frame"]
+
+
+def rule_every_control_pressed(screens, taps, cfg, report):
+    """Off unless rules.json has "everyControl". Every control on a captured screen is pressed by the tour, pressed by a
+    UI test (suiteDir), or listed in "allow" with its reason. An owner found a past-night row with a chevron that did
+    nothing, and a Create button that read as a search bar: both sat on toured screens and nobody pressed them."""
+    every = cfg.get("everyControl")
+    if not every:
+        return
+    allow = [re.compile(a["pattern"]) for a in every.get("allow", []) if a.get("pattern") and a.get("why")]
+    families = [re.compile(f) for f in every.get("families", [])]
+    covered = {control_family(t.get("identifier") or "", families) for t in taps if t.get("revealed") is not False}
+    if every.get("suiteDir"):
+        covered |= suite_pressed(every["suiteDir"], families, [re.compile(p) for p in every.get("pressPatterns", [])])
+    # A pressed control covers the twins SwiftUI reports with it: a label-only copy (a chip's text, a row's cell)
+    # and a button drawn inside it (a toolbar Button's SF Symbol image, a list row's inner button).
+    pressed_els = [(s["screen"], el) for s in screens for el in s["elements"]
+                   if el["identifier"] and el["type"] in ("Button", "Cell", "Link")
+                   and control_family(el["identifier"], families) in covered]
+    covered |= {el["label"] for _, el in pressed_els if el["label"]}
+    pressed_frames = {}
+    for screen, el in pressed_els:
+        if el["frame"]:
+            pressed_frames.setdefault(screen, []).append(el["frame"])
+
+    def inside_pressed(screen, frame):
+        x, y, w, h = frame
+        return any(px <= x and py <= y and x + w <= px + pw and y + h <= py + ph
+                   for px, py, pw, ph in pressed_frames.get(screen, []))
+    missing = {}
+    for screen in screens:
+        for ident, label, frame in visible_controls(screen["elements"]):
+            report.count("every-control-pressed")
+            # A tab button's identifier is its icon and the tour presses it by label, so either name counts.
+            names = [n for n in (ident, label) if n]
+            if inside_pressed(screen["screen"], frame):
+                continue
+            if any(control_family(n, families) in covered for n in names) or any(a.search(n) for a in allow for n in names):
+                continue
+            missing.setdefault(control_family(names[0], families), f"{screen['fixture']}/{screen['flow']}")
+    for family, where in sorted(missing.items()):
+        report.fail("every-control-pressed", where,
+                    f"{family} is never pressed by the tour or a UI test (press it, or list it in everyControl.allow with a why)")
+
+
 def run(tour_dir, cfg, fixtures, scrolled=None):
     try:
         stops, taps = load_tour(tour_dir)
@@ -541,6 +641,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_forbidden_identifiers(screens, cfg, report)
     rule_taps_respond(taps, cfg, report)
     rule_app_timings(taps, cfg, report)
+    rule_every_control_pressed(screens, taps, cfg, report)
     return {
         "verdict": "PASS" if not report.findings else "FAIL",
         "screens": [f"{s['fixture']}/{s['flow']}" for s in screens],

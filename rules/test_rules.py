@@ -312,6 +312,39 @@ def test_slow_tap_allow_needs_a_reason():
     assert slow(no_reason) == ["other", "username.field"]
 
 
+def test_every_control_pressed():
+    """NextBar 2026-10-20: a past-night row and New group's Create sat on toured screens and nobody pressed them."""
+    def el(t, ident="", label="", frame=(0, 0, 100, 44), depth=4):
+        return {"type": t, "identifier": ident, "label": label, "value": "", "placeholderValue": "",
+                "frame": frame, "depth": depth, "flags": []}
+    screen = {"fixture": "f", "flow": "plans/plans", "screen": "plans", "elements": [
+        el("Button", "plans.row.1", "Friday crew", (0, 0, 300, 60)),
+        el("Button", "", "FC", (10, 10, 40, 40), depth=5),           # inner button of the pressed row
+        el("Button", "plans.row.2", "Saturday", (0, 70, 300, 60)),  # same family as row 1
+        el("Button", "past.row", "Past night", (0, 140, 300, 60)),   # nobody presses it
+        el("Button", "groups.create", "Create", (0, 210, 80, 44)),   # pressed by the suite
+        el("Button", "share", "Share", (0, 260, 80, 44)),            # allowed, with a reason
+        el("Button", "help", "Help", (0, 310, 80, 44)),              # "allowed" without a reason
+        el("Keyboard", frame=(0, 500, 393, 300), depth=2),
+        el("Button", "", "Emoji", (0, 780, 60, 60), depth=2),        # the keyboard's dock key
+    ]}
+    suite = Path(tempfile.mkdtemp())
+    (suite / "GroupsTests.swift").write_text('let c = app.buttons["groups.create"]\nc.tap()\n', encoding="utf-8")
+    cfg = {"everyControl": {"suiteDir": str(suite), "allow": [
+        {"pattern": "^share$", "why": "system share sheet"}, {"pattern": "^help$"}]}}
+
+    def missing(config):
+        report = rules.Report()
+        rules.rule_every_control_pressed([screen], [{"identifier": "plans.row.1"}], config, report)
+        return sorted(f["message"].split(" is never")[0] for f in report.findings)
+
+    assert missing(cfg) == ["help", "past.row"], missing(cfg)
+    assert missing({}) == []   # off unless the app opts in
+    # A Swift interpolation in the suite names the whole family.
+    (suite / "PastTests.swift").write_text('app.buttons["past.\\(id)"].tap()\n', encoding="utf-8")
+    assert rules.control_family("past.\\(id)") == "past.*"
+
+
 def test_empty_or_broken_tour_fails():
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "index.json").write_text("[]", encoding="utf-8")
@@ -339,5 +372,6 @@ if __name__ == "__main__":
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()
     test_slow_tap_allow_needs_a_reason()
+    test_every_control_pressed()
     test_empty_or_broken_tour_fails()
     print("rules self-check: ok")

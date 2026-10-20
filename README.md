@@ -43,6 +43,11 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   one tree snapshot and is only the fallback for older tours.)
 - `slowTapAllow`: named exceptions to `maxTapMillis`, each `{identifier, maxMillis, why}`; an entry without a `why` is
   ignored, so no budget is raised silently (NextBar: the simulator's first keyboard takes 2-4 s)
+- `every-control-pressed` (opt-in, `everyControl`): every control on a captured screen is pressed by the tour, pressed
+  by a UI test (`suiteDir`, plus the app's tap helpers in `pressPatterns`), or listed in `allow` as `{pattern, why}`
+  (no `why`, no exception). `families` names id patterns whose rows count as one control. The system keyboard, label
+  copies of a pressed control and buttons drawn inside one are not separate controls (NextBar: a past-night row and
+  New group's Create sat on toured screens and nobody pressed them)
 - `app-timings`: the app's own clocks. After every tap the tour reads an element with identifier `gate-perf` whose
   value reads `tap=123 write=4 sync=1 n=7` (the app's tap-to-idle time, its last write, how many full syncs it has
   run, how many tap measurements it has completed) into the tap's `app` dict. XCUITest's idle wait includes

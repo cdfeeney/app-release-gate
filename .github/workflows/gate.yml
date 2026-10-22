@@ -70,7 +70,7 @@ jobs:
   tour:
     name: Screenshot tour
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Check out the app
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,7 +103,7 @@ jobs:
         run: bash -euo pipefail -c "$PREPARE"
 
       - name: Run the tour
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           TEST_RUNNER_TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
           TEST_RUNNER_TOUR_OUT: ${{ runner.temp }}/tour

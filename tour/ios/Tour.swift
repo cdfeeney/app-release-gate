@@ -264,13 +264,7 @@ final class TourTests: XCTestCase {
                 // and that sheet blocked every later step).
                 $0.exists && $0.isHittable && target.frame.maxY > $0.frame.minY
             }) {
-                let before = target.frame.minY
                 app.swipeUp(velocity: .slow)
-                Thread.sleep(forTimeInterval: 0.4)
-                // A swipe that moves nothing means fixed chrome (a tab below the bar), which no scroll can cover.
-                if target.exists, target.frame.minY == before { return true }
-                guard reveal(target, in: app) else { return false }
-                continue
             } else { return true }
             Thread.sleep(forTimeInterval: 0.4)
             guard reveal(target, in: app) else { return false }

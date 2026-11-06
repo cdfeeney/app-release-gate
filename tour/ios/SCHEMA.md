@@ -4,7 +4,6 @@
 {
   "launchArguments": ["--test-store", "{uuid}"],        // "{uuid}" is replaced per launch
   "launchEnvironment": {"SOME_FLAG": "1"},              // optional
-  "pinnedBars": ["checkout-bar"],                       // optional: see the note on pinned bars below
   "fixtureEnvKey": "COACH_TEST_SESSION",                // env var that receives each fixture's JSON text
   "fixtures": [                                         // optional; flows run once per fixture
     {"name": "wed", "file": "fixtures/wed.json", "setDateKeyToToday": "date", "week": 2}
@@ -59,8 +58,7 @@ Paths: `TOUR_PATH`/`TOUR_OUT` from the environment (xcodebuild passes `TEST_RUNN
 - Toggles: the switch is a nested child. Lazy lists: rows below the fold are absent from the tree, which
   is why the tour scrolls to the bottom and the rules take the union of all stops.
 - A pinned `safeAreaInset` bar covers the bottom of a scroll view; list every pinned bar's identifier in
-  `rules.json` `pinnedBars` so `rows-reachable` can see it, and in `tour.json` `pinnedBars` so the tour moves a row clear
-  of the bar before tapping it (a row behind a bar is reported hittable and the tap can land on the bar's button).
+  `rules.json` `pinnedBars` so `rows-reachable` can see it.
 - `Text` is a staticText, not a button. Taps land on the centre of the frame; a row with a Spacer needs
   `.contentShape(Rectangle())`.
 - A row scrolled under the navigation bar is still reported hittable and the tap lands on the bar; the tour drags

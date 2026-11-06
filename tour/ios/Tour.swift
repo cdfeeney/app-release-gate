@@ -21,7 +21,6 @@ final class TourTests: XCTestCase {
         var launchEnvironment: [String: String]?
         var fixtureEnvKey: String?
         var fixtures: [Fixture]?
-        var pinnedBars: [String]?   // identifiers of bars pinned over the bottom of a scroll view; rows are moved clear before a tap
         var flows: [Flow]
     }
 
@@ -65,7 +64,6 @@ final class TourTests: XCTestCase {
     private var seenIdentifierSet = Set<String>()
     /// The last `background` step, attached to the next tap so the rules can judge what an unlock did to it.
     private var pendingBackground: [String: Any]?
-    private var pinnedBars: [String] = []
 
     private var gateDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Gate")
@@ -78,7 +76,6 @@ final class TourTests: XCTestCase {
         outDir = env["TOUR_OUT"].map { URL(fileURLWithPath: $0) } ?? gateDir.appendingPathComponent("out")
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
         let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: manifestURL))
-        pinnedBars = manifest.pinnedBars ?? []
 
         var fixtures: [Fixture?] = (manifest.fixtures ?? []).map { Optional($0) }
         if fixtures.isEmpty { fixtures = [nil] }
@@ -185,13 +182,7 @@ final class TourTests: XCTestCase {
             note("\(label): \(id) not tappable (exists=\(target.exists))", optional: optional)
             return
         }
-        guard clearOfBars(target, id: id, in: app) else {
-            if optional != true {
-                taps.append(["identifier": id, "step": label, "changed": false, "expected": expectChange, "revealed": false])
-            }
-            note("\(label): \(id) could not be moved clear of the bars", optional: optional)
-            return
-        }
+        clearOfBars(target, in: app)
         let before = normalized(app.debugDescription)
         // tap() returns once the app is idle again, so a main-thread stall after the tap lands in `ms`
         // (owner 10-17: "buttons take three or four seconds"); the rules compare it with maxTapMillis.
@@ -251,25 +242,14 @@ final class TourTests: XCTestCase {
     /// bar (ConorHealth run 5b: "changed nothing"). A slow swipe moves the content down, then the target is revealed
     /// again. A press-and-drag is never used: started on a text field it raised the keyboard and blocked every
     /// later tap (run 5d).
-    /// False when the row could not be moved clear: a tap there would land on the bar and act on the wrong control.
-    private func clearOfBars(_ target: XCUIElement, id: String, in app: XCUIApplication) -> Bool {
-        for _ in 0..<3 {
-            guard target.exists else { return false }
+    private func clearOfBars(_ target: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<2 {
             let bar = app.navigationBars.firstMatch
-            if bar.exists, bar.isHittable, target.frame.minY < bar.frame.maxY + 12 {
-                app.swipeDown(velocity: .slow)
-            } else if !pinnedBars.contains(id), pinnedBars.map({ element($0, in: app) }).contains(where: {
-                // A bar behind a sheet is not hittable and does not count. A row behind a live bar is still reported
-                // hittable, and its tap can land on the bar's own button (ConorHealth build 42: a tick opened Review,
-                // and that sheet blocked every later step).
-                $0.exists && $0.isHittable && target.frame.maxY > $0.frame.minY
-            }) {
-                app.swipeUp(velocity: .slow)
-            } else { return true }
+            guard bar.exists, target.exists, target.frame.minY < bar.frame.maxY + 12 else { return }
+            app.swipeDown(velocity: .slow)
             Thread.sleep(forTimeInterval: 0.4)
-            guard reveal(target, in: app) else { return false }
+            guard reveal(target, in: app) else { return }
         }
-        return false
     }
 
     /// Work an app defers past the tap (a debounced write 700 ms later) escapes `idleMs`, so after `settleDelay` a

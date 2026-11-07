@@ -76,7 +76,8 @@ function domTree() {
   const emit = (depth, type, el, attrs) => {
     n += 1;
     let line = `${'  '.repeat(depth)}${type}, 0x${n.toString(16)}, ${frame(el)}`;
-    for (const [k, v] of Object.entries(attrs)) if (v) line += `, ${k}: '${v}'`;
+    // Every value is cleaned here, the one place a line is written, so no field can carry a quote or line break.
+    for (const [k, v] of Object.entries(attrs)) { const c = clean(v); if (c) line += `, ${k}: '${c}'`; }
     if (el.matches?.('[aria-selected="true"],[aria-pressed="true"],[aria-current]:not([aria-current="false"]),:checked')) line += ', Selected';
     if (el.matches?.(':disabled,[aria-disabled="true"]')) line += ', Disabled';
     lines.push(line);
@@ -86,12 +87,12 @@ function domTree() {
     if (hidden(el)) return;
     if (!sized(el)) { for (const child of el.children) walk(child, depth); return; }
     const type = typeOf(el);
-    const identifier = el.getAttribute('data-testid') || el.id || '';
+    const identifier = clean(el.getAttribute('data-testid') || el.id || '');
     let childDepth = depth;
     if (type) {
       const label = clean(el.getAttribute('aria-label') || el.getAttribute('alt') || (type === 'TextField' ? '' : el.innerText));
       // A password never reaches the (published) tree; the screenshot masks it too.
-      const isSecret = el.getAttribute('type') === 'password';
+      const isSecret = el instanceof HTMLInputElement && el.type === 'password';   // .type is normalized; the attribute is not
       const value = type === 'TextField' || type === 'PopUpButton' ? (isSecret ? (el.value ? '••••' : '') : clean(el.value ?? el.textContent)) : '';
       emit(depth, type, el, { identifier, label, value, placeholderValue: clean(el.getAttribute('placeholder')) });
       childDepth = depth + 1;
@@ -190,9 +191,10 @@ async function tap(page, id, label, expectChange, optional) {
   }
   const clickMs = Date.now() - started;
   let changed = false;
-  for (let i = 0; i < (expectChange ? CHANGE_POLLS : 1); i += 1) {
+  // Observed right after the click and again after every pause, the last one at the deadline itself.
+  for (let i = 0; i <= (expectChange ? CHANGE_POLLS : 0); i += 1) {
+    if (i > 0) await sleep(CHANGE_POLL_MS);
     if (normalized(await tree(page)) !== before) { changed = true; break; }
-    if (expectChange) await sleep(CHANGE_POLL_MS);
   }
   const ms = Date.now() - started;
   // A web tap answers asynchronously (fetch, then render), so what the user waits for is the first change, not the

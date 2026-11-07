@@ -45,7 +45,9 @@ const normalized = (tree) => tree;   // the web dump carries no addresses or pid
 // the screenshot. Hidden elements are left out; elements scrolled off screen stay in, with their real frames.
 function domTree() {
   const lines = [];
-  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  // An ASCII apostrophe would let page text forge an attribute (", identifier: '...") in the parsed tree, so
+  // every value carries a typographic one instead.
+  const clean = (s) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 300).replace(/'/g, '’');
   // Hidden: nothing under it is drawn. Zero-size (a wrapper): not drawn itself, but its children may be.
   const hidden = (el) => {
     const s = getComputedStyle(el);
@@ -88,7 +90,9 @@ function domTree() {
     let childDepth = depth;
     if (type) {
       const label = clean(el.getAttribute('aria-label') || el.getAttribute('alt') || (type === 'TextField' ? '' : el.innerText));
-      const value = type === 'TextField' || type === 'PopUpButton' ? clean(el.value ?? el.textContent) : '';
+      // A password never reaches the (published) tree; the screenshot masks it too.
+      const isSecret = el.getAttribute('type') === 'password';
+      const value = type === 'TextField' || type === 'PopUpButton' ? (isSecret ? (el.value ? '••••' : '') : clean(el.value ?? el.textContent)) : '';
       emit(depth, type, el, { identifier, label, value, placeholderValue: clean(el.getAttribute('placeholder')) });
       childDepth = depth + 1;
       if (type === 'Image') return;
@@ -184,14 +188,18 @@ async function tap(page, id, label, expectChange, optional) {
     note(`${label}: tapping ${id} failed: ${error.message.split('\n')[0]}`, optional);
     return;
   }
-  const idleMs = Date.now() - started;
-  const settleMs = await settle(page);
+  const clickMs = Date.now() - started;
   let changed = false;
   for (let i = 0; i < (expectChange ? CHANGE_POLLS : 1); i += 1) {
     if (normalized(await tree(page)) !== before) { changed = true; break; }
     if (expectChange) await sleep(CHANGE_POLL_MS);
   }
-  const entry = { identifier: id, step: label, changed, expected: expectChange, ms: Date.now() - started, idleMs, settleMs };
+  const ms = Date.now() - started;
+  // A web tap answers asynchronously (fetch, then render), so what the user waits for is the first change, not the
+  // click call: idleMs is the time until the screen changed (the whole poll window when it never did).
+  const idleMs = expectChange ? ms : clickMs;
+  const settleMs = await settle(page);
+  const entry = { identifier: id, step: label, changed, expected: expectChange, ms, idleMs, settleMs };
   const perf = await appTimings(page);
   if (perf) entry.app = perf;
   taps.push(entry);

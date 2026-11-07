@@ -13,7 +13,7 @@ This gate looks at what a person sees, with their real data, and refuses the upl
 | Part | Where | Generic? |
 |---|---|---|
 | Gate workflow (tour → rules → reader → verdict) | `.github/workflows/gate.yml` (reusable) | yes |
-| Tour: XCUITest that follows a manifest, screenshots every stop, dumps the accessibility tree, records whether each tap changed the screen | `tour/ios/Tour.swift`, copied into the app's UI test target unchanged | yes (iOS); a Playwright tour for web uses the same output format |
+| Tour: XCUITest that follows a manifest, screenshots every stop, dumps the accessibility tree, records whether each tap changed the screen | `tour/ios/Tour.swift`, copied into the app's UI test target unchanged | yes: iOS `tour/ios/Tour.swift`; web `tour/web/tour.mjs` (Playwright, runs from the kit, same output; `tour/web/SCHEMA.md`) |
 | Rules: deterministic checks over the tour output | `rules/rules.py` (+ `test_rules.py`) | yes; per-app patterns in `rules.json` |
 | Reader: blind screenshot review by Claude, fixed JSON verdict | `reader/core.md`, `reader/run.py` | yes; per-app persona in `profile.json` |
 

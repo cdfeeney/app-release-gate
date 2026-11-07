@@ -19,17 +19,34 @@ name: Release gate
 on:
   workflow_call:
     inputs:
+      platform:
+        description: ios (XCUITest tour on a simulator) or web (Playwright tour, tour/web/tour.mjs, against a server the app starts)
+        type: string
+        default: ios
       container:
-        description: xcodebuild container flag, e.g. "-project MyApp.xcodeproj" or "-workspace MyApp.xcworkspace"
+        description: iOS only. xcodebuild container flag, e.g. "-project MyApp.xcodeproj" or "-workspace MyApp.xcworkspace"
         type: string
-        required: true
+        default: ""
       scheme:
+        description: iOS only
         type: string
-        required: true
+        default: ""
       ui_test_target:
-        description: UI test target that holds the kit's Tour.swift copy, e.g. MyAppUITests
+        description: iOS only. UI test target that holds the kit's Tour.swift copy, e.g. MyAppUITests
         type: string
-        required: true
+        default: ""
+      serve:
+        description: Web only. Shell that starts the app's server in the background after prepare, e.g. "npm run start -- --port 3000 &"
+        type: string
+        default: ""
+      base_url:
+        description: Web only. Where the served app answers; the tour waits for it before starting
+        type: string
+        default: http://localhost:3000
+      node_version:
+        description: Web only
+        type: string
+        default: "24"
       ui_test_dir:
         description: Folder that holds the UI test target's sources, when it is not the target's name at the repo root (e.g. apple/MyAppUITests)
         type: string
@@ -87,6 +104,9 @@ on:
       PREPARE_SECRET:
         description: Optional. The only secret the prepare shell sees (an encrypted app source's passphrase); with private_log it also seals the build log
         required: false
+      APP_ENV:
+        description: Web only, optional. Dotenv lines written to .env.local before prepare (a web build's public config, e.g. a staging URL and anon key)
+        required: false
 
 permissions:
   contents: read
@@ -111,9 +131,11 @@ jobs:
           persist-credentials: false
 
       - name: The app's Tour.swift must be the kit's
+        if: inputs.platform == 'ios'
         run: python3 .release-gate-kit/scripts/verify-copy.py .release-gate-kit "${{ inputs.ui_test_dir || inputs.ui_test_target }}/Tour.swift"
 
       - name: Boot an iPhone
+        if: inputs.platform == 'ios'
         run: |
           if [ -n "${{ inputs.developer_dir }}" ]; then echo "DEVELOPER_DIR=${{ inputs.developer_dir }}" >> "$GITHUB_ENV"; export DEVELOPER_DIR="${{ inputs.developer_dir }}"; fi
           RUNTIME="${{ inputs.runtime }}"
@@ -123,6 +145,18 @@ jobs:
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$SIMULATOR_ID"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+      - name: Set up Node
+        if: inputs.platform == 'web'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Write the web app's environment
+        if: inputs.platform == 'web'
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+        run: if [ -n "$APP_ENV" ]; then printf '%s\n' "$APP_ENV" > .env.local; fi
 
       - name: Prepare the app project
         if: inputs.prepare != ''
@@ -134,6 +168,7 @@ jobs:
         run: bash -euo pipefail -c "$PREPARE"
 
       - name: Run the tour
+        if: inputs.platform == 'ios'
         timeout-minutes: 45
         env:
           TEST_RUNNER_TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
@@ -164,6 +199,35 @@ jobs:
           summary = json.load(open(os.path.join(tour, "summary.json")))
           bad = [e["png"] for e in index if not (os.path.getsize(os.path.join(tour, e["png"])) > 0 and os.path.getsize(os.path.join(tour, e["tree"])) > 0)]
           print(f"xcodebuild exit {status}; fixtures {summary.get('fixtures')}; {len(index)} screens; problems {len(summary.get('problems', []))}; empty captures {bad}")
+          for p in summary.get("problems", []): print("  TOUR PROBLEM:", p)
+          sys.exit(0 if status == 0 and index and not bad and not summary.get("problems") else 1)
+          EOF
+
+      - name: Run the web tour
+        if: inputs.platform == 'web'
+        timeout-minutes: 45
+        env:
+          SERVE: ${{ inputs.serve }}
+          BASE_URL: ${{ inputs.base_url }}
+          TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
+          TOUR_OUT: ${{ runner.temp }}/tour
+        run: |
+          mkdir -p "$TOUR_OUT"
+          [ -n "$SERVE" ] && bash -c "$SERVE" > "$RUNNER_TEMP/serve.log" 2>&1
+          for i in $(seq 1 90); do curl -fsS -o /dev/null "$BASE_URL" && break; sleep 2; done
+          curl -fsS -o /dev/null "$BASE_URL" || { echo "server never answered at $BASE_URL"; tail -40 "$RUNNER_TEMP/serve.log"; exit 1; }
+          set +e
+          node .release-gate-kit/tour/web/tour.mjs
+          STATUS=$?
+          set -e
+          test -f "$TOUR_OUT/index.json" || { echo "tour produced no index.json (exit $STATUS)"; exit 1; }
+          python3 - "$TOUR_OUT" "$STATUS" <<'EOF'
+          import json, os, sys
+          tour, status = sys.argv[1], int(sys.argv[2])
+          index = json.load(open(os.path.join(tour, "index.json")))
+          summary = json.load(open(os.path.join(tour, "summary.json")))
+          bad = [e["png"] for e in index if not (os.path.getsize(os.path.join(tour, e["png"])) > 0 and os.path.getsize(os.path.join(tour, e["tree"])) > 0)]
+          print(f"tour exit {status}; fixtures {summary.get('fixtures')}; {len(index)} screens; problems {len(summary.get('problems', []))}; empty captures {bad}")
           for p in summary.get("problems", []): print("  TOUR PROBLEM:", p)
           sys.exit(0 if status == 0 and index and not bad and not summary.get("problems") else 1)
           EOF

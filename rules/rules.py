@@ -472,7 +472,7 @@ def rule_taps_respond(taps, cfg, report):
         for where, message in slow:
             report.fail("taps-respond", where, message)
     # The median tap over its own limit (slowTapAllow can be stricter): a count, so no limit value can flip a sign.
-    if allowed and timed and len(slow) * 2 > timed:
+    if allowed and timed and len(slow) * 2 >= timed:
         report.fail("taps-respond", "all taps", f"{len(slow)} of {timed} taps were over their limit: the app itself is slow")
 
 

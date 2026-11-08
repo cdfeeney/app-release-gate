@@ -265,6 +265,8 @@ def test_one_simulator_freeze_per_run_is_noted_not_failed():
     assert any("over their limit" in f["message"] for f in findings(under_own, "taps-respond")), under_own["findings"]
     negative = run_tour(clean, today, [tap(1, 4000)], config={**cfg, "maxTapMillis": -1})   # Codex r2: a bad limit never passes
     assert findings(negative, "taps-respond"), negative["findings"]
+    half = run_tour(clean, today, [tap(1, 800), tap(2, 7977)], config=cfg)   # Codex r3: half slow is a slow median
+    assert findings(half, "taps-respond"), half["findings"]
     strict = run_tour(clean, today, [tap(1, 800), tap(2, 7977)])   # no tapOutliers: every slow tap fails, as before
     assert findings(strict, "taps-respond")
 

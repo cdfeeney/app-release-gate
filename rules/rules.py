@@ -130,9 +130,13 @@ class Report:
     def __init__(self):
         self.findings = []
         self.checked = {}
+        self.notes = []   # seen and reported, not failed (an allowed simulator freeze)
 
     def fail(self, rule, where, message):
         self.findings.append({"rule": rule, "where": where, "message": message})
+
+    def note(self, rule, where, message):
+        self.notes.append({"rule": rule, "where": where, "message": message})
 
     def count(self, rule, n=1):
         self.checked[rule] = self.checked.get(rule, 0) + n
@@ -436,6 +440,12 @@ def rule_taps_respond(taps, cfg, report):
     # An entry without a "why" is ignored, so no budget is ever raised silently.
     allow = [(re.compile(a["identifier"]), int(a["maxMillis"])) for a in cfg.get("slowTapAllow", [])
              if a.get("identifier") and a.get("maxMillis") and a.get("why")]
+    # A shared simulator freezes for seconds now and then, on whichever control is being tapped (NextBar runs
+    # 42424389038 / 42447038070: one tap per run at 3.9-8.0 s, a different control each run, the same controls under
+    # 1 s in the other run). Up to `tapOutliers` slow taps per run (default 0) are reported as notes, not findings;
+    # more than that, or a median over the limit, is the app's own lag. Owner 2026-11-08: allow one for NextBar.
+    allowed = int(cfg.get("tapOutliers", 0))
+    slow, timings = [], []
     for tap in taps:
         if tap.get("revealed") is False:
             continue   # never tapped; controls-change-screen reports it
@@ -452,8 +462,19 @@ def rule_taps_respond(taps, cfg, report):
         else:
             report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} recorded no timing (Tour.swift copy older than the rules)')
             continue
+        timings.append(took)
         if took > tap_limit:
-            report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {tap_limit} ms)')
+            slow.append((tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {tap_limit} ms)'))
+    if len(slow) <= allowed:
+        for where, message in slow:
+            report.note("taps-respond", where, message + " - allowed as a simulator freeze (tapOutliers)")
+    else:
+        for where, message in slow:
+            report.fail("taps-respond", where, message)
+    if allowed and timings:
+        median = sorted(timings)[len(timings) // 2]
+        if median > limit:
+            report.fail("taps-respond", "all taps", f"the median tap took {median} ms (limit {limit} ms): the app itself is slow")
 
 
 def rule_app_timings(taps, cfg, report):
@@ -655,6 +676,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
         "stops": len(stops),
         "checked": report.checked,
         "findings": report.findings,
+        "notes": report.notes,
     }
 
 
@@ -690,6 +712,8 @@ def main(argv=None):
     print(f"rules: {result['verdict']} — {result['stops']} stops, {len(result['screens'])} screens, checks {result['checked']}")
     for f in result["findings"]:
         print(f"  FAIL {f['rule']} @ {f['where']}: {f['message']}")
+    for n in result.get("notes", []):
+        print(f"  NOTE {n['rule']} @ {n['where']}: {n['message']}")
     return 0 if result["verdict"] == "PASS" else 1
 
 

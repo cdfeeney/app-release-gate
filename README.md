@@ -48,6 +48,9 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   (no `why`, no exception). `families` names id patterns whose rows count as one control. The system keyboard, label
   copies of a pressed control and buttons drawn inside one are not separate controls (NextBar: a past-night row and
   New group's Create sat on toured screens and nobody pressed them)
+- `tapOutliers` (default 0): up to this many slow taps per run are reported as NOTEs, not failures, because a shared
+  simulator freezes for seconds on whichever control is being tapped; more than that, or a median tap over the limit,
+  still fails. A control that is a note in two runs is the app's own lag.
 - `app-timings`: the app's own clocks. After every tap the tour reads an element with identifier `gate-perf` whose
   value reads `tap=123 write=4 sync=1 n=7` (the app's tap-to-idle time, its last write, how many full syncs it has
   run, how many tap measurements it has completed) into the tap's `app` dict. XCUITest's idle wait includes

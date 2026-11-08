@@ -247,6 +247,23 @@ def test_taps_without_timing_fail_closed():
     assert not findings(quick, "taps-respond")
 
 
+def test_one_simulator_freeze_per_run_is_noted_not_failed():
+    """NextBar runs 42424389038 / 42447038070: one tap per run froze 3.9-8.0 s, a different control each run, the same
+    controls under 1 s in the other run. Owner 2026-11-08: allow one. Two slow taps, or a slow median, still fail."""
+    clean, today = clean_trees()
+    tap = lambda i, ms: {"identifier": f"c{i}", "step": f"s{i}", "changed": True, "expected": True, "ms": ms, "idleMs": ms, "settleMs": 100}
+    cfg = {**CONFIG, "maxTapMillis": 3000, "tapOutliers": 1}
+    one = run_tour(clean, today, [tap(1, 800), tap(2, 7977), tap(3, 900)], config=cfg)
+    assert not findings(one, "taps-respond"), one["findings"]
+    assert any("c2" in n["message"] and "7977" in n["message"] for n in one["notes"]), one.get("notes")
+    two = run_tour(clean, today, [tap(1, 800), tap(2, 4501), tap(3, 3899), tap(4, 700), tap(5, 900)], config=cfg)
+    assert len(findings(two, "taps-respond")) == 2, two["findings"]
+    slow_median = run_tour(clean, today, [tap(1, 3100), tap(2, 900), tap(3, 3200)], config={**cfg, "tapOutliers": 5})
+    assert any("median" in f["message"] for f in findings(slow_median, "taps-respond")), slow_median["findings"]
+    strict = run_tour(clean, today, [tap(1, 800), tap(2, 7977)])   # no tapOutliers: every slow tap fails, as before
+    assert findings(strict, "taps-respond")
+
+
 def test_gate_perf_element_is_a_clock_not_a_screen_text():
     clean, today = clean_trees()
     clock = "      StaticText, 0x30, {{0.0, 0.0}, {1.0, 1.0}}, identifier: 'gate-perf', label: 'Timing', value: 'sync=1 n=1 tap=511 write=89 s'\n"
@@ -392,6 +409,7 @@ if __name__ == "__main__":
     test_rows_reachable_only_where_the_tour_scrolled()
     test_fixture_rules_apply_to_that_fixture_only()
     test_taps_without_timing_fail_closed()
+    test_one_simulator_freeze_per_run_is_noted_not_failed()
     test_app_timings_are_the_apps_own_clock()
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()

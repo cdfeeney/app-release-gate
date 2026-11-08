@@ -462,7 +462,7 @@ def rule_taps_respond(taps, cfg, report):
         else:
             report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} recorded no timing (Tour.swift copy older than the rules)')
             continue
-        timings.append(took)
+        timings.append(took / tap_limit)   # against each tap's own limit (slowTapAllow can be stricter)
         if took > tap_limit:
             slow.append((tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {tap_limit} ms)'))
     if len(slow) <= allowed:
@@ -473,8 +473,8 @@ def rule_taps_respond(taps, cfg, report):
             report.fail("taps-respond", where, message)
     if allowed and timings:
         median = sorted(timings)[len(timings) // 2]
-        if median > limit:
-            report.fail("taps-respond", "all taps", f"the median tap took {median} ms (limit {limit} ms): the app itself is slow")
+        if median > 1:
+            report.fail("taps-respond", "all taps", f"the median tap took {median:.1f}x its limit: the app itself is slow")
 
 
 def rule_app_timings(taps, cfg, report):

@@ -259,10 +259,12 @@ def test_one_simulator_freeze_per_run_is_noted_not_failed():
     two = run_tour(clean, today, [tap(1, 800), tap(2, 4501), tap(3, 3899), tap(4, 700), tap(5, 900)], config=cfg)
     assert len(findings(two, "taps-respond")) == 2, two["findings"]
     slow_median = run_tour(clean, today, [tap(1, 3100), tap(2, 900), tap(3, 3200)], config={**cfg, "tapOutliers": 5})
-    assert any("median" in f["message"] for f in findings(slow_median, "taps-respond")), slow_median["findings"]
+    assert any("over their limit" in f["message"] for f in findings(slow_median, "taps-respond")), slow_median["findings"]
     tight = {**cfg, "tapOutliers": 3, "slowTapAllow": [{"identifier": "^c", "maxMillis": 1000, "why": "stricter"}]}
     under_own = run_tour(clean, today, [tap(1, 2000), tap(2, 2000), tap(3, 2000)], config=tight)   # Codex: each over its 1 s limit
-    assert any("median" in f["message"] for f in findings(under_own, "taps-respond")), under_own["findings"]
+    assert any("over their limit" in f["message"] for f in findings(under_own, "taps-respond")), under_own["findings"]
+    negative = run_tour(clean, today, [tap(1, 4000)], config={**cfg, "maxTapMillis": -1})   # Codex r2: a bad limit never passes
+    assert findings(negative, "taps-respond"), negative["findings"]
     strict = run_tour(clean, today, [tap(1, 800), tap(2, 7977)])   # no tapOutliers: every slow tap fails, as before
     assert findings(strict, "taps-respond")
 

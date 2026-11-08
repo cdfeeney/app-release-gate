@@ -445,7 +445,7 @@ def rule_taps_respond(taps, cfg, report):
     # 1 s in the other run). Up to `tapOutliers` slow taps per run (default 0) are reported as notes, not findings;
     # more than that, or a median over the limit, is the app's own lag. Owner 2026-11-08: allow one for NextBar.
     allowed = int(cfg.get("tapOutliers", 0))
-    slow, timings = [], []
+    slow, timed = [], 0
     for tap in taps:
         if tap.get("revealed") is False:
             continue   # never tapped; controls-change-screen reports it
@@ -462,7 +462,7 @@ def rule_taps_respond(taps, cfg, report):
         else:
             report.fail("taps-respond", tap.get("step", ""), f'tapping {tap.get("identifier")} recorded no timing (Tour.swift copy older than the rules)')
             continue
-        timings.append(took / tap_limit)   # against each tap's own limit (slowTapAllow can be stricter)
+        timed += 1
         if took > tap_limit:
             slow.append((tap.get("step", ""), f'tapping {tap.get("identifier")} took {took} ms {what} (limit {tap_limit} ms)'))
     if len(slow) <= allowed:
@@ -471,10 +471,9 @@ def rule_taps_respond(taps, cfg, report):
     else:
         for where, message in slow:
             report.fail("taps-respond", where, message)
-    if allowed and timings:
-        median = sorted(timings)[len(timings) // 2]
-        if median > 1:
-            report.fail("taps-respond", "all taps", f"the median tap took {median:.1f}x its limit: the app itself is slow")
+    # The median tap over its own limit (slowTapAllow can be stricter): a count, so no limit value can flip a sign.
+    if allowed and timed and len(slow) * 2 > timed:
+        report.fail("taps-respond", "all taps", f"{len(slow)} of {timed} taps were over their limit: the app itself is slow")
 
 
 def rule_app_timings(taps, cfg, report):

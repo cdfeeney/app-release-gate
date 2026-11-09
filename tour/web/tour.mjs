@@ -147,6 +147,9 @@ async function swipe(page, direction) {
   const vp = page.viewportSize();
   await page.mouse.move(vp.width / 2, vp.height / 2);
   await page.mouse.wheel(0, (direction === 'down' ? -1 : 1) * vp.height * 0.7);
+  // A phone has no hover: park the pointer off the content so no row is captured in its hover style (NextBar quiz,
+  // 2026-11-08: an option read as selected).
+  await page.mouse.move(0, 0);
   await sleep(400);
 }
 

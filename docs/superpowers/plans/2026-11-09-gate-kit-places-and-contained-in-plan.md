@@ -29,7 +29,7 @@
 
 ---
 
-### Task K1: `APP_BUILD_SETTINGS` → xcodebuild arguments in the tour step
+### Task 1: `APP_BUILD_SETTINGS` → xcodebuild arguments in the tour step
 
 **Files:**
 - Modify: `.github/workflows/gate.yml` ("Run the tour" step, lines 109–138 at 6df5a4a)
@@ -54,7 +54,7 @@
 - [ ] **Step 7: README paragraph** (3 lines): what the secret is, the format, the iOS-only scope.
 - [ ] **Step 8: Commit** `feat(gate): [T1] APP_BUILD_SETTINGS secret → xcodebuild build settings for the iOS tour build` with `Spec:` line.
 
-### Task K2: per-flow `launchArguments` in `Tour.swift`
+### Task 2: per-flow `launchArguments` in `Tour.swift`
 
 **Files:**
 - Modify: `tour/ios/Tour.swift` (`Flow` struct ~line 25; the fixture loop ~lines 83–101; `launch(_:)` ~line 113)
@@ -72,7 +72,7 @@
 - [ ] **Step 6: Commit** `feat(tour): [T1] a flow may set launchArguments; the tour relaunches the app for it and back` with `Spec:` line.
 - [ ] **Step 7: Review + push (job 0a):** Codex review command from Global Constraints; fix 🔴s with fix plans; `git push origin HEAD:nextbar-sheet-safe-clear`; record the sha — next-bar Task N3 pins it.
 
-### Task K3: `contained-in` rule (job 0b — needs the real tree from next-bar Task N3)
+### Task 3: `contained-in` rule (job 0b — needs the real tree from next-bar Task N3)
 
 **Files:**
 - Modify: `rules/rules.py` (new `rule_contained_in(screens, cfg, report)` after `rule_content_in_bounds`; one call in `run()`; `README.md` rule list)

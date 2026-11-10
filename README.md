@@ -37,6 +37,8 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   Off unless configured, since a carousel legitimately overhangs
 - `contained-in`: pairs in `containedIn` (`[{"child": regex, "container": regex}]`); a container on screen must hold
   its child, fully. A zero-size child does not count; a container with no frame or a zero size is a finding.
+- `no-overlap`: patterns in `noOverlap` (`[regex, ...]`); elements whose identifier matches one pattern must not overlap
+  by more than 0.5 pt in both axes (a covered card swallows taps). Frameless matches are ignored; same-id twins at one frame count once.
   Off unless configured
 - `controls-change-screen`: every tapped control changed something
 - `taps-respond`: every tap is answered within `maxTapMillis` (default 1500). The tour records `idleMs` per tap, the

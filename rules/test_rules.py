@@ -30,6 +30,8 @@ Element subtree:
       Button, 0x18, {{16.0, 500.0}, {120.0, 44.0}}, identifier: 'coach-timer-start-b1-c2-s0', label: 'Start hold'
       Button, 0x19, {{16.0, 550.0}, {80.0, 44.0}}, identifier: 'coach-select-weight-b3-e1-p0', label: 'Use 30 lb as work set 1'
       Other, 0x22, {{0.0, 600.0}, {393.0, 150.0}}, identifier: 'map.card'
+      Other, 0x24, {{0.0, 560.0}, {393.0, 100.0}}, identifier: 'list.card.1'
+      Other, 0x25, {{0.0, 620.0}, {393.0, 100.0}}, identifier: 'list.card.2'
       Button, 0x13, {{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0', label: 'Hidden row'
       StaticText, 0x14, {{16.0, 790.0}, {300.0, 20.0}}, identifier: 'coach-save-hint', label: 'Answer pain to save'
 Path to element:
@@ -58,11 +60,12 @@ CONFIG = {
     "appTimedIdentifiers": [r"^coach-preparation-"],
     "appTimingOutliers": 0,
     "containedIn": [{"child": r"^map\.card\.name$", "container": r"^map\.card$"}],
+    "noOverlap": [r"^list\.card\.\d+$"],
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
              "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text",
-             "forbidden-identifiers", "taps-respond", "app-timings", "contained-in"}
+             "forbidden-identifiers", "taps-respond", "app-timings", "contained-in", "no-overlap"}
 TICK = {"identifier": "coach-preparation-b1-c0-s0", "step": "wed/session/step3", "changed": True, "expected": True, "ms": 900, "idleMs": 400}
 PERF = {"tap": 120, "write": 3, "sync": 1, "n": 1}
 SCROLLED = {("session", "session"), ("today", "today")}
@@ -103,6 +106,7 @@ def clean_trees():
                       "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'")
              .replace("coach-timer-start-b1-c2-s0", "coach-video-b1-c2").replace("coach-select-weight-b3-e1-p0", "coach-ramp-load-b3-e1-p0")
              .replace("coach-preparation-b1-c1-s0-left", "coach-preparation-b1-c1-s0").replace("coach-preparation-b1-c1-s0-right", "coach-preparation-b1-c4-s0")
+             .replace("{{0.0, 620.0}, {393.0, 100.0}}, identifier: 'list.card.2'", "{{0.0, 660.0}, {393.0, 100.0}}, identifier: 'list.card.2'")
              .replace("identifier: 'map.card'\n", "identifier: 'map.card'\n"
                       "        StaticText, 0x23, {{16.0, 610.0}, {200.0, 24.0}}, identifier: 'map.card.name', label: 'Bar'\n"))
     return clean, TODAY.replace("0 of 4 done", "0 of 5 done")
@@ -156,7 +160,7 @@ def test_clean_tour_passes():
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
     for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
                  "no-stale-week", "rows-reachable", "controls-change-screen", "forbidden-identifiers", "taps-respond",
-                 "app-timings", "contained-in"):
+                 "app-timings", "contained-in", "no-overlap"):
         assert result["checked"].get(rule, 0) >= 1, (rule, result["checked"])
 
 
@@ -443,6 +447,62 @@ def test_contained_in_noop_without_config():
     assert not report.findings and "contained-in" not in report.checked, (report.findings, report.checked)
 
 
+# next-bar run 42824208920, stop home/bar-details (real frames): a widget in card 2 reports a frame that starts 99 pt
+# inside card 1, covering card 1's Photos & hours button, so the tap never reached it.
+HOME_CARDS = """Element subtree:
+ →Application, 0x1, pid: 9, label: 'App'
+    Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}
+      Other, 0x1037b9230, {{24.0, 326.3}, {345.0, 334.0}}, identifier: 'home.card.1'
+        Button, 0x1037795a0, {{40.0, 616.0}, {114.7, 21.0}}, identifier: 'home.card.1.photosAndHours', label: 'Photos & hours'
+      Other, 0x10377bb80, {{24.0, 561.3}, {345.0, 587.0}}, identifier: 'home.card.2'
+Path to element:
+"""
+CARD2 = "{{24.0, 561.3}, {345.0, 587.0}}, identifier: 'home.card.2'"
+NO_OVERLAP = {"noOverlap": [r"^home\.card\.\d+$"]}
+
+
+def no_overlap(tree, cfg=NO_OVERLAP):
+    report = rules.Report()
+    screen = {"fixture": "default", "flow": "home/bar-details", "stops": [{"elements": rules.parse_tree(tree)}]}
+    rules.rule_no_overlap([screen], cfg, report)
+    return report
+
+
+def test_no_overlap_real_covered_card():
+    report = no_overlap(HOME_CARDS)
+    assert [f["message"] for f in report.findings] == [
+        "home.card.1 (24,326 345×334) overlaps home.card.2 (24,561 345×587) by 99 pt"], report.findings
+    assert report.findings[0]["where"] == "default/home/bar-details" and report.checked.get("no-overlap") == 2, report.checked
+
+
+def test_no_overlap_corrected_cards_pass():
+    fixed = HOME_CARDS.replace(CARD2, "{{24.0, 676.3}, {345.0, 587.0}}, identifier: 'home.card.2'")
+    assert CARD2 not in fixed and not no_overlap(fixed).findings
+
+
+def test_no_overlap_touching_edges_pass():
+    touching = HOME_CARDS.replace(CARD2, "{{24.0, 660.3}, {345.0, 587.0}}, identifier: 'home.card.2'")
+    assert CARD2 not in touching and not no_overlap(touching).findings
+
+
+def test_no_overlap_children_are_not_siblings():
+    alone = HOME_CARDS.replace("      Other, 0x10377bb80, " + CARD2 + "\n", "")
+    assert "home.card.2" not in alone
+    report = no_overlap(alone)   # photosAndHours sits inside card 1 but does not match the sibling pattern
+    assert not report.findings and report.checked.get("no-overlap") == 1, (report.findings, report.checked)
+
+
+def test_no_overlap_twin_at_same_frame_is_one_element():
+    fixed = HOME_CARDS.replace(CARD2, "{{24.0, 676.3}, {345.0, 587.0}}, identifier: 'home.card.2'")
+    twin = fixed.replace("Path to element:", "      StaticText, 0x50, {{24.0, 326.3}, {345.0, 334.0}}, identifier: 'home.card.1'\nPath to element:")
+    assert not no_overlap(twin).findings
+
+
+def test_no_overlap_noop_without_config():
+    report = no_overlap(HOME_CARDS, {})
+    assert not report.findings and "no-overlap" not in report.checked, (report.findings, report.checked)
+
+
 def test_slow_tap_allow_needs_a_reason():
     taps = [{"identifier": "username.field", "step": "s/onb/step3", "changed": True, "expected": True, "idleMs": 4200},
             {"identifier": "other", "step": "s/onb/step4", "changed": True, "expected": True, "idleMs": 4200}]
@@ -550,6 +610,12 @@ if __name__ == "__main__":
     test_contained_in_offscreen_container_still_measured()
     test_contained_in_degenerate_duplicate_child_ignored()
     test_contained_in_noop_without_config()
+    test_no_overlap_real_covered_card()
+    test_no_overlap_corrected_cards_pass()
+    test_no_overlap_touching_edges_pass()
+    test_no_overlap_children_are_not_siblings()
+    test_no_overlap_twin_at_same_frame_is_one_element()
+    test_no_overlap_noop_without_config()
     test_slow_tap_allow_needs_a_reason()
     test_a_decade_is_not_seconds()
     test_every_control_pressed()

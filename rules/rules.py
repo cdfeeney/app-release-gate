@@ -396,6 +396,29 @@ def rule_contained_in(screens, cfg, report):
                                                    f"{box['identifier']} ({cx:.0f},{cy:.0f} {cw:.0f}×{ch:.0f})")
 
 
+def rule_no_overlap(screens, cfg, report):
+    """Sibling elements named by a pattern must not overlap. 2026-11-09: a widget in card 2 reported a frame starting
+    ~100 pt inside card 1 and invisibly covered card 1's button, so the tap never reached it. Patterns come from
+    `noOverlap: [regex, ...]`; two matched elements may share at most 0.5 pt in either axis. Matched elements with no
+    area are ignored here (`contained-in` judges missing frames). The same identifier at the identical frame (a view and
+    its label twin) is one element."""
+    for pattern in [re.compile(p) for p in cfg.get("noOverlap", [])]:
+        for screen in screens:
+            where = f"{screen['fixture']}/{screen['flow']}"
+            for stop in screen["stops"]:
+                matched = list(dict.fromkeys((el["identifier"], tuple(el["frame"])) for el in stop["elements"]
+                                             if el["identifier"] and pattern.search(el["identifier"]) and has_area(el["frame"])))
+                for i, (id_a, a) in enumerate(matched):
+                    report.count("no-overlap")
+                    for id_b, b in matched[i + 1:]:
+                        overlap_w = min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0])
+                        overlap_h = min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])
+                        if overlap_w > 0.5 and overlap_h > 0.5:
+                            report.fail("no-overlap", where, f"{id_a} ({a[0]:.0f},{a[1]:.0f} {a[2]:.0f}×{a[3]:.0f}) overlaps "
+                                                             f"{id_b} ({b[0]:.0f},{b[1]:.0f} {b[2]:.0f}×{b[3]:.0f}) "
+                                                             f"by {min(overlap_w, overlap_h):.0f} pt")
+
+
 def has_area(frame):
     """A frame that can be seen and measured: present, with positive width and height."""
     return bool(frame) and frame[2] > 0 and frame[3] > 0
@@ -710,6 +733,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_rows_reachable(screens, cfg, report, scrolled)
     rule_content_in_bounds(screens, cfg, report)
     rule_contained_in(screens, cfg, report)
+    rule_no_overlap(screens, cfg, report)
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)

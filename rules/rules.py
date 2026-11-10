@@ -363,6 +363,39 @@ def rule_content_in_bounds(screens, cfg, report):
                                 f"{el['identifier']} spans x {x:.0f}..{x + w:.0f}, outside the {width:.0f}-pt window")
 
 
+def rule_contained_in(screens, cfg, report):
+    """A container on screen must hold its named child, fully. 2026-11-09: a card's name line was laid out below
+    the card's bottom edge and every other rule passed it. Pairs come from `containedIn: [{"child": regex, "container": regex}]`; a stop with no container is skipped."""
+    pairs = [(re.compile(p["child"]), re.compile(p["container"]), p["child"]) for p in cfg.get("containedIn", [])]
+    for child_re, container_re, child_pattern in pairs:
+        for screen in screens:
+            where = f"{screen['fixture']}/{screen['flow']}"
+            for stop in screen["stops"]:
+                framed = [el for el in stop["elements"] if el["identifier"] and el["frame"]]
+                containers = [el for el in framed if container_re.search(el["identifier"])]
+                if not containers:
+                    continue
+                for _ in containers:
+                    report.count("contained-in")
+                children = [el for el in framed if child_re.search(el["identifier"])]
+                if any(inside(c["frame"], k["frame"]) for c in children for k in containers):
+                    continue
+                box = containers[0]
+                if not children:
+                    report.fail("contained-in", where, f"{box['identifier']} has no {child_pattern} inside it")
+                    continue
+                x, y, w, h = children[0]["frame"]
+                cx, cy, cw, ch = box["frame"]
+                report.fail("contained-in", where, f"{children[0]['identifier']} ({x:.0f},{y:.0f} {w:.0f}×{h:.0f}) sticks out of "
+                                                   f"{box['identifier']} ({cx:.0f},{cy:.0f} {cw:.0f}×{ch:.0f})")
+
+
+def inside(child, box):
+    x, y, w, h = child
+    cx, cy, cw, ch = box
+    return cx - 0.5 <= x and cy - 0.5 <= y and x + w <= cx + cw + 0.5 and y + h <= cy + ch + 0.5
+
+
 def rule_controls_change_screen(taps, report):
     """Every control the tour tapped must change something on screen."""
     for tap in taps:
@@ -665,6 +698,7 @@ def run(tour_dir, cfg, fixtures, scrolled=None):
     rule_no_stale_week(screens, cfg, report, fixtures)
     rule_rows_reachable(screens, cfg, report, scrolled)
     rule_content_in_bounds(screens, cfg, report)
+    rule_contained_in(screens, cfg, report)
     rule_controls_change_screen(taps, report)
     rule_instruction_not_live(screens, cfg, report)
     rule_forbidden_text(screens, cfg, report)

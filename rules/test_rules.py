@@ -29,6 +29,7 @@ Element subtree:
       StaticText, 0x16, {{16.0, 480.0}, {300.0, 20.0}}, label: 'Coach's note: nil'
       Button, 0x18, {{16.0, 500.0}, {120.0, 44.0}}, identifier: 'coach-timer-start-b1-c2-s0', label: 'Start hold'
       Button, 0x19, {{16.0, 550.0}, {80.0, 44.0}}, identifier: 'coach-select-weight-b3-e1-p0', label: 'Use 30 lb as work set 1'
+      Other, 0x22, {{0.0, 600.0}, {393.0, 150.0}}, identifier: 'map.card'
       Button, 0x13, {{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0', label: 'Hidden row'
       StaticText, 0x14, {{16.0, 790.0}, {300.0, 20.0}}, identifier: 'coach-save-hint', label: 'Answer pain to save'
 Path to element:
@@ -56,11 +57,12 @@ CONFIG = {
     "maxAppMillis": {"tap": 300, "write": 50},
     "appTimedIdentifiers": [r"^coach-preparation-"],
     "appTimingOutliers": 0,
+    "containedIn": [{"child": r"^map\.card\.name$", "container": r"^map\.card$"}],
 }
 
 ALL_RULES = {"count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
              "no-stale-week", "rows-reachable", "controls-change-screen", "instruction-not-live", "forbidden-text",
-             "forbidden-identifiers", "taps-respond", "app-timings"}
+             "forbidden-identifiers", "taps-respond", "app-timings", "contained-in"}
 TICK = {"identifier": "coach-preparation-b1-c0-s0", "step": "wed/session/step3", "changed": True, "expected": True, "ms": 900, "idleMs": 400}
 PERF = {"tap": 120, "write": 3, "sync": 1, "n": 1}
 SCROLLED = {("session", "session"), ("today", "today")}
@@ -100,7 +102,9 @@ def clean_trees():
              .replace("{{16.0, 800.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'",
                       "{{16.0, 700.0}, {360.0, 44.0}}, identifier: 'coach-preparation-b2-c0-s0'")
              .replace("coach-timer-start-b1-c2-s0", "coach-video-b1-c2").replace("coach-select-weight-b3-e1-p0", "coach-ramp-load-b3-e1-p0")
-             .replace("coach-preparation-b1-c1-s0-left", "coach-preparation-b1-c1-s0").replace("coach-preparation-b1-c1-s0-right", "coach-preparation-b1-c4-s0"))
+             .replace("coach-preparation-b1-c1-s0-left", "coach-preparation-b1-c1-s0").replace("coach-preparation-b1-c1-s0-right", "coach-preparation-b1-c4-s0")
+             .replace("identifier: 'map.card'\n", "identifier: 'map.card'\n"
+                      "        StaticText, 0x23, {{16.0, 610.0}, {200.0, 24.0}}, identifier: 'map.card.name', label: 'Bar'\n"))
     return clean, TODAY.replace("0 of 4 done", "0 of 5 done")
 
 
@@ -152,7 +156,7 @@ def test_clean_tour_passes():
     assert result["verdict"] == "PASS", json.dumps(result["findings"], indent=1)
     for rule in ("count-matches-rows", "same-count-everywhere", "no-duplicate-titles", "durations-in-minutes",
                  "no-stale-week", "rows-reachable", "controls-change-screen", "forbidden-identifiers", "taps-respond",
-                 "app-timings"):
+                 "app-timings", "contained-in"):
         assert result["checked"].get(rule, 0) >= 1, (rule, result["checked"])
 
 
@@ -333,6 +337,72 @@ def test_content_in_bounds_only_for_listed_identifiers():
     assert not findings(run_tour(spill, TODAY), "content-in-bounds")     # off unless configured
 
 
+# next-bar CI run 42813087811, stop tabs/map-card: the card's subtree as captured (real frames). The bar name sits at
+# y 809.7, below the card's bottom edge (561 + 196 = 757), and this build gave it no identifier.
+MAP_CARD = """Element subtree:
+ →Application, 0x1, pid: 9, label: 'App'
+    Window, 0x2, {{0.0, 0.0}, {393.0, 852.0}}
+      Other, 0x11672a100, {{12.0, 561.0}, {369.0, 196.0}}, identifier: 'map.card'
+        StaticText, 0x11672a220, {{346.0, 459.7}, {23.0, 45.0}}, label: 'D'
+        Image, 0x11672a340, {{12.0, 358.0}, {369.0, 425.3}}, identifier: 'PlaceDetailsCompactVerticalViewPhoto'
+        Button, 0x11672a460, {{20.0, 713.7}, {98.3, 46.0}}, identifier: 'OpenMapButton', label: 'Open in Google Maps'
+        StaticText, 0x11672a7c0, {{28.0, 768.5}, {74.7, 14.3}}, label: 'Google Maps'
+        Button, 0x11672aa00, {{16.0, 451.7}, {44.0, 44.0}}, identifier: 'map.card.close', label: 'Close'
+        StaticText, 0x11672ac40, {{28.0, 809.7}, {130.3, 25.3}}, label: 'Dive & Dagger'
+        StaticText, 0x11672ad60, {{28.0, 838.0}, {106.0, 18.3}}, label: 'Bar · East Village'
+        Button, 0x11672b0c0, {{321.0, 811.0}, {44.0, 44.0}}, identifier: 'map.directions', label: 'Directions'
+Path to element:
+"""
+CARD_NAME = "{{28.0, 809.7}, {130.3, 25.3}}, label: 'Dive & Dagger'"
+CARD_STICKS_OUT = MAP_CARD.replace(CARD_NAME, "{{28.0, 809.7}, {130.3, 25.3}}, identifier: 'map.card.name', label: 'Dive & Dagger'")
+CARD_INSIDE = MAP_CARD.replace(CARD_NAME, "{{28.0, 577.0}, {130.3, 25.3}}, identifier: 'map.card.name', label: 'Dive & Dagger'")
+CONTAINED = {**CONFIG, "containedIn": [{"child": r"^map\.card\.name$", "container": r"^map\.card(\.parked)?$"}]}
+
+
+def contained_in(tree, cfg=CONTAINED):
+    report = rules.Report()
+    screen = {"fixture": "default", "flow": "tabs/map-card", "stops": [{"elements": rules.parse_tree(tree)}]}
+    rules.rule_contained_in([screen], cfg, report)
+    return report
+
+
+def test_contained_in_fails_when_child_missing():
+    found = contained_in(MAP_CARD).findings
+    assert len(found) == 1 and "has no" in found[0]["message"] and "map.card " in found[0]["message"], found
+    assert found[0]["where"] == "default/tabs/map-card", found
+
+
+def test_contained_in_fails_when_child_sticks_out():
+    found = contained_in(CARD_STICKS_OUT).findings
+    assert len(found) == 1 and "sticks out" in found[0]["message"], found
+    assert "map.card.name (28,810 130×25) sticks out of map.card (12,561 369×196)" == found[0]["message"], found
+
+
+def test_contained_in_passes_when_inside():
+    report = contained_in(CARD_INSIDE)
+    assert not report.findings and report.checked.get("contained-in") == 1, (report.findings, report.checked)
+
+
+def test_contained_in_child_without_frame_is_missing():
+    frameless = MAP_CARD.replace("StaticText, 0x11672ac40, " + CARD_NAME, "StaticText, 0x11672ac40, identifier: 'map.card.name', label: 'Dive & Dagger'")
+    assert "identifier: 'map.card.name'" in frameless
+    found = contained_in(frameless).findings
+    assert len(found) == 1 and "has no" in found[0]["message"], found
+
+
+def test_contained_in_two_containers_one_holds_child():
+    parked = MAP_CARD.replace("Path to element:", "      Other, 0x30, {{12.0, 760.0}, {369.0, 92.0}}, identifier: 'map.card.parked'\n"
+                              "        StaticText, 0x31, {{28.0, 780.0}, {130.3, 25.3}}, identifier: 'map.card.name', label: 'Dive & Dagger'\n"
+                              "Path to element:")
+    report = contained_in(parked)
+    assert not report.findings and report.checked.get("contained-in") == 2, (report.findings, report.checked)
+
+
+def test_contained_in_noop_without_config():
+    report = contained_in(MAP_CARD, {k: v for k, v in CONFIG.items() if k != "containedIn"})
+    assert not report.findings and "contained-in" not in report.checked, (report.findings, report.checked)
+
+
 def test_slow_tap_allow_needs_a_reason():
     taps = [{"identifier": "username.field", "step": "s/onb/step3", "changed": True, "expected": True, "idleMs": 4200},
             {"identifier": "other", "step": "s/onb/step4", "changed": True, "expected": True, "idleMs": 4200}]
@@ -430,6 +500,12 @@ if __name__ == "__main__":
     test_app_timings_are_the_apps_own_clock()
     test_gate_perf_element_is_a_clock_not_a_screen_text()
     test_content_in_bounds_only_for_listed_identifiers()
+    test_contained_in_fails_when_child_missing()
+    test_contained_in_fails_when_child_sticks_out()
+    test_contained_in_passes_when_inside()
+    test_contained_in_child_without_frame_is_missing()
+    test_contained_in_two_containers_one_holds_child()
+    test_contained_in_noop_without_config()
     test_slow_tap_allow_needs_a_reason()
     test_a_decade_is_not_seconds()
     test_every_control_pressed()

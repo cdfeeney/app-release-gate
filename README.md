@@ -87,7 +87,8 @@ Every bug an owner confirms becomes one more rule here, and then applies to ever
 Optional secret `APP_BUILD_SETTINGS` (iOS tour build only): dotenv lines `KEY=VALUE`, each passed to the tour's
 `xcodebuild` as a build setting, e.g. an API key the app reads from Info.plist. Blank lines, `#` comments and keys
 that are not `[A-Za-z_][A-Za-z0-9_]*` are dropped (`scripts/build-settings-args.sh`); unset means no extra settings.
-xcodebuild echoes these values in its log, so the tour build log stays out of the uploaded artifact (console only, masked).
+xcodebuild echoes them as `KEY = VALUE`, so each value is masked on the console with `::add-mask::` and the tour build log
+is kept out of the uploaded artifact.
 
 Write `tour.json` from the design's list of screens and controls, not from the code.
 

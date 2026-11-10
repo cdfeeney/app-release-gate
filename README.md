@@ -90,6 +90,15 @@ that are not `[A-Za-z_][A-Za-z0-9_]*` are dropped (`scripts/build-settings-args.
 xcodebuild echoes them as `KEY = VALUE`, so each value is masked on the console with `::add-mask::` and the tour build log
 is kept out of the uploaded artifact.
 
+A caller can compose it from a secret it already has instead of creating a new one; passing secrets explicitly
+(not `secrets: inherit`) means naming the reader token too:
+
+```yaml
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      APP_BUILD_SETTINGS: MY_API_KEY=${{ secrets.MY_API_KEY }}
+```
+
 Write `tour.json` from the design's list of screens and controls, not from the code.
 
 ## Running pieces locally

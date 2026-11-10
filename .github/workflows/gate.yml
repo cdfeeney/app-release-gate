@@ -63,6 +63,9 @@ on:
         type: string
         default: ""
     secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+        description: Claude Code OAuth token for the blind reader
       APP_BUILD_SETTINGS:
         required: false
         description: "Optional. Dotenv lines of xcodebuild build settings for the tour build (e.g. an API key the app reads from Info.plist)"

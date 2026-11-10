@@ -128,11 +128,11 @@ jobs:
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             ${EXTRA[@]+"${EXTRA[@]}"} \
-            test > "$RUNNER_TEMP/tour/xcodebuild.log" 2>&1
+            test > "$RUNNER_TEMP/xcodebuild.log" 2>&1
           XCODEBUILD_STATUS=$?
           set -e
-          grep -E "error:|Test Case|\*\* TEST|TourTests" "$RUNNER_TEMP/tour/xcodebuild.log" | tail -40 || true
-          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json (xcodebuild exit $XCODEBUILD_STATUS)"; tail -80 "$RUNNER_TEMP/tour/xcodebuild.log"; exit 1; }
+          grep -E "error:|Test Case|\*\* TEST|TourTests" "$RUNNER_TEMP/xcodebuild.log" | tail -40 || true
+          test -f "$RUNNER_TEMP/tour/index.json" || { echo "tour produced no index.json (xcodebuild exit $XCODEBUILD_STATUS)"; tail -80 "$RUNNER_TEMP/xcodebuild.log"; exit 1; }
           python3 - "$RUNNER_TEMP/tour" "$XCODEBUILD_STATUS" <<'EOF'
           import json, os, sys
           tour, status = sys.argv[1], int(sys.argv[2])

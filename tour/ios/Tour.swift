@@ -33,6 +33,7 @@ final class TourTests: XCTestCase {
 
     struct Flow: Decodable {
         var name: String
+        var launchArguments: [String]?   // appended to the manifest's; the tour relaunches the app for this flow and back after it
         var steps: [Step]
     }
 
@@ -81,19 +82,29 @@ final class TourTests: XCTestCase {
         if fixtures.isEmpty { fixtures = [nil] }
         for fixture in fixtures {
             let app = XCUIApplication()
-            app.launchArguments = (manifest.launchArguments ?? []).map { $0.replacingOccurrences(of: "{uuid}", with: UUID().uuidString) }
+            let baseArguments = manifest.launchArguments ?? []
             var environment = manifest.launchEnvironment ?? [:]
             if let fixture = fixture, let key = manifest.fixtureEnvKey {
                 environment[key] = try fixtureJSON(fixture, relativeTo: manifestURL.deletingLastPathComponent())
             }
             app.launchEnvironment = environment
-            guard launch(app) else {
+            guard launch(app, arguments: baseArguments) else {
                 // Never tour a dead app: a capture of nothing would still count as a screen.
                 problems.append("\(fixture?.name ?? "default"): the app never reached the foreground after \(Self.launchAttempts) launches")
                 app.terminate()
                 continue
             }
+            var launchedWith: [String]? = baseArguments   // the live app's arguments; nil after a failed relaunch
             for flow in manifest.flows {
+                let wanted = baseArguments + (flow.launchArguments ?? [])
+                if wanted != launchedWith {
+                    app.terminate()
+                    launchedWith = launch(app, arguments: wanted) ? wanted : nil
+                    if launchedWith == nil {
+                        note("\(flow.name): relaunch with \(wanted) never came up", optional: nil)
+                        continue
+                    }
+                }
                 run(flow, fixture: fixture?.name ?? "default", in: app)
             }
             app.terminate()
@@ -110,7 +121,8 @@ final class TourTests: XCTestCase {
     /// expected and retried; the third attempt counts like any other failure.
     static let launchAttempts = 3
     static let launchFlake = "Timed out while acquiring background assertion"   // the runner's exact wording; a crash reads differently
-    private func launch(_ app: XCUIApplication) -> Bool {
+    private func launch(_ app: XCUIApplication, arguments: [String]) -> Bool {
+        app.launchArguments = arguments.map { $0.replacingOccurrences(of: "{uuid}", with: UUID().uuidString) }
         for attempt in 1..<Self.launchAttempts {
             let options = XCTExpectedFailure.Options()
             options.isStrict = false

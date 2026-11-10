@@ -23,10 +23,19 @@
       {"swipe": "down"},                                // one slow swipe up|down
       {"sleep": 1.0},
       {"background": 3}                                 // Home, 3 s away, reactivate: what an owner does between sets
-    ]}
+    ]},
+    {"name": "empty-account", "launchArguments": ["-uiTestingEmpty"], "steps": []}  // optional; see below
   ]
 }
 ```
+
+A flow with `launchArguments` runs in an app launched with the manifest's `launchArguments` followed by the
+flow's (`{uuid}` replaced as usual): before that flow the tour terminates the app and launches it with that set,
+and before the next flow whose set differs (for example one without the field) it relaunches again, so later
+flows get the manifest's arguments back. Consecutive flows with the same set share one launch. A relaunch starts
+the app cold: whatever an earlier flow did in memory is gone (anything unpersisted is lost, see the SIGKILL trap
+below), so a flow that needs a signed-in or onboarded app must repeat those steps itself. A relaunch that never
+reaches the foreground is a problem (`<flow>: relaunch with [...] never came up`) and that flow's steps are skipped.
 
 A `background` step marks the next tap with `afterBackground: {"seconds": 3, "resumeMs": 400}` (how long the app
 took to be back in the foreground). After every tap the tour also reads an element with identifier `gate-perf`, if

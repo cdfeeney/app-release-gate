@@ -21,7 +21,7 @@
 
 ## Review Focus
 
-1. `APP_BUILD_SETTINGS` contains a value with spaces or `=` inside (e.g. `FOO=a=b`): the whole line must reach `xcodebuild` as one argument `FOO=a=b`, not split. Test in K1 step 1.
+1. `APP_BUILD_SETTINGS` contains a value with spaces or `=` inside (e.g. `FOO=a=b c`): the whole line must reach `xcodebuild` as one argument `FOO=a=b c`, not split (one argument per line; a value cannot contain a newline). Test in K1 step 1.
 2. `APP_BUILD_SETTINGS` empty or unset: the tour command is byte-for-byte what it is today (no empty-string argument). Test in K1 step 1.
 3. A flow with `launchArguments` followed by a flow without: the second flow must see the manifest's default arguments again (relaunch back), or the gate tours the wrong account. K2 step 3 + SCHEMA note.
 4. `containedIn` container present on a stop but child element has `frame == None` (hidden/zero): must count as missing, not pass. Test in K3 step 1.
@@ -38,18 +38,18 @@
 - Modify: `README.md` (one paragraph under the iOS caller section), `CHANGELOG`/header comment if the kit keeps one
 
 **Interfaces:**
-- Produces: `scripts/build-settings-args.sh` — reads the env var `APP_BUILD_SETTINGS` (dotenv-style lines `KEY=VALUE`, `#` comments and blank lines ignored, KEY matches `^[A-Za-z_][A-Za-z0-9_]*$`), prints each kept line NUL-separated on stdout; exit 0 always. Callers: `mapfile -d '' -t EXTRA < <(bash scripts/build-settings-args.sh)` then `xcodebuild ... "${EXTRA[@]}" test`.
+- Produces: `scripts/build-settings-args.sh` — reads the env var `APP_BUILD_SETTINGS` (dotenv-style lines `KEY=VALUE`, `#` comments and blank lines ignored, KEY matches `^[A-Za-z_][A-Za-z0-9_]*$`), prints each kept line on its own line on stdout; exit 0 always. Callers (bash 3.2-safe, the macOS runner's /bin/bash): `EXTRA=(); while IFS= read -r l; do EXTRA+=("$l"); done < <(bash scripts/build-settings-args.sh)` then `xcodebuild ... "${EXTRA[@]}" test`.
 - Consumes: nothing.
 
 - [ ] **Step 1: Write the failing test** `scripts/test_build_settings_args.sh` (bash, `set -euo pipefail`):
   - unset var → zero output bytes;
-  - `APP_BUILD_SETTINGS=$'GOOGLE_PLACES_API_KEY=abc\n# note\n\nFOO=a=b c'` → exactly two NUL-separated items: `GOOGLE_PLACES_API_KEY=abc`, `FOO=a=b c`;
+  - `APP_BUILD_SETTINGS=$'GOOGLE_PLACES_API_KEY=abc\n# note\n\nFOO=a=b c'` → exactly two lines: `GOOGLE_PLACES_API_KEY=abc`, `FOO=a=b c`;
   - `APP_BUILD_SETTINGS='1BAD=x'` → zero items (invalid key dropped);
   - prints `build-settings-args: ok` at the end.
 - [ ] **Step 2: Run it:** `bash scripts/test_build_settings_args.sh` → FAIL (`No such file` for the parser).
 - [ ] **Step 3: Implement `scripts/build-settings-args.sh`** (≤ 15 lines: `while IFS= read -r line` over `printf '%s\n' "${APP_BUILD_SETTINGS-}"`, regex check `^[A-Za-z_][A-Za-z0-9_]*=`, `printf '%s\0' "$line"`).
 - [ ] **Step 4: Run it:** `bash scripts/test_build_settings_args.sh` → `build-settings-args: ok`.
-- [ ] **Step 5: Wire gate.yml.** In "Run the tour": add `APP_BUILD_SETTINGS: ${{ secrets.APP_BUILD_SETTINGS }}` to `env`; before `xcodebuild`, `mapfile -d '' -t EXTRA < <(bash .release-gate-kit/scripts/build-settings-args.sh)`; add `"${EXTRA[@]}"` between `CODE_SIGNING_ALLOWED=NO \` and `test`. Add to `on.workflow_call` a `secrets:` map with `APP_BUILD_SETTINGS: { required: false, description: "Optional. Dotenv lines of xcodebuild build settings for the tour build (e.g. an API key the app reads from Info.plist)" }` — callers with `secrets: inherit` keep working. Note: the kit's checkout path inside the caller's workspace is whatever the existing steps use for `rules.py` (`.release-gate-kit/`); use the same.
+- [ ] **Step 5: Wire gate.yml.** In "Run the tour": add `APP_BUILD_SETTINGS: ${{ secrets.APP_BUILD_SETTINGS }}` to `env`; before `xcodebuild`, `EXTRA=(); while IFS= read -r l; do EXTRA+=("$l"); done < <(bash .release-gate-kit/scripts/build-settings-args.sh)`; add `"${EXTRA[@]}"` between `CODE_SIGNING_ALLOWED=NO \` and `test`. Add to `on.workflow_call` a `secrets:` map with `APP_BUILD_SETTINGS: { required: false, description: "Optional. Dotenv lines of xcodebuild build settings for the tour build (e.g. an API key the app reads from Info.plist)" }` — callers with `secrets: inherit` keep working. Note: the kit's checkout path inside the caller's workspace is whatever the existing steps use for `rules.py` (`.release-gate-kit/`); use the same.
 - [ ] **Step 6: Validate the YAML:** `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/gate.yml'))"` → no error (install PyYAML if missing: `pip install pyyaml`).
 - [ ] **Step 7: README paragraph** (3 lines): what the secret is, the format, the iOS-only scope.
 - [ ] **Step 8: Commit** `feat(gate): [T1] APP_BUILD_SETTINGS secret → xcodebuild build settings for the iOS tour build` with `Spec:` line.

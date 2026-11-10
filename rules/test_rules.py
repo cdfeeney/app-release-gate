@@ -176,6 +176,16 @@ def test_app_timings_are_the_apps_own_clock():
     assert len(found) == 1 and "stale" in found[0]["message"] and "n=1" in found[0]["message"], found
     fresh_launch = run_tour(clean, today, [{**TICK, "app": PERF}, {**TICK, "step": "thu/session/step3", "app": PERF}])
     assert not findings(fresh_launch, "app-timings"), "another fixture is another launch: its counters start again"
+    # a flow with its own launchArguments relaunches the app inside the fixture: the tap marked afterLaunch starts again
+    before = {**TICK, "app": {**PERF, "n": 5}}
+    after = {**TICK, "step": "wed/empty-account/step2", "app": PERF}
+    relaunched = run_tour(clean, today, [before, {**after, "afterLaunch": True}])
+    assert not findings(relaunched, "app-timings"), relaunched["findings"]
+    unmarked = findings(run_tour(clean, today, [before, after]), "app-timings")
+    assert len(unmarked) == 1 and "stale" in unmarked[0]["message"], "without the marker a lower n is still stale"
+    cold = run_tour(clean, today, [before, {**after, "app": {**PERF, "tap": 1200}, "afterLaunch": True}],
+                    config={**CONFIG, "maxFirstAppMillis": {"tap": 1500}})
+    assert not findings(cold, "app-timings"), "the first tap after a relaunch gets the first-launch budget"
     # the unlock between sets must not sync: the sync count may not rise into a tap marked afterBackground
     synced = run_tour(clean, today, [{**TICK, "app": PERF},
                                      {**TICK, "step": "wed/session/step5", "app": {**PERF, "sync": 2, "n": 2},

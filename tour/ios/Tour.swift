@@ -65,6 +65,9 @@ final class TourTests: XCTestCase {
     private var seenIdentifierSet = Set<String>()
     /// The last `background` step, attached to the next tap so the rules can judge what an unlock did to it.
     private var pendingBackground: [String: Any]?
+    /// Set by a flow's relaunch, consumed by the next recorded tap (`afterLaunch`): the app's counters started again.
+    /// Not cleared at `run` start (the relaunch happens just before it); a fixture's first launch clears it.
+    private var pendingLaunch = false
 
     private var gateDir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Gate")
@@ -95,6 +98,7 @@ final class TourTests: XCTestCase {
                 continue
             }
             var launchedWith: [String]? = baseArguments   // the live app's arguments; nil after a failed relaunch
+            pendingLaunch = false   // a fixture change already restarts the rules' counters
             for flow in manifest.flows {
                 let wanted = baseArguments + (flow.launchArguments ?? [])
                 if wanted != launchedWith {
@@ -104,6 +108,7 @@ final class TourTests: XCTestCase {
                         note("\(flow.name): relaunch with \(wanted) never came up", optional: nil)
                         continue
                     }
+                    pendingLaunch = true
                 }
                 run(flow, fixture: fixture?.name ?? "default", in: app)
             }
@@ -224,6 +229,7 @@ final class TourTests: XCTestCase {
         if let settleMs { entry["settleMs"] = settleMs }
         if let timings = appTimings(in: app) { entry["app"] = timings }
         if let pendingBackground { entry["afterBackground"] = pendingBackground; self.pendingBackground = nil }
+        if pendingLaunch { entry["afterLaunch"] = true; pendingLaunch = false }
         taps.append(entry)
         if expectChange && !changed { note("\(label): tapping \(id) changed nothing on screen", optional: optional) }
     }

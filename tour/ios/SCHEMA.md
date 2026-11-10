@@ -36,6 +36,9 @@ flows get the manifest's arguments back. Consecutive flows with the same set sha
 the app cold: whatever an earlier flow did in memory is gone (anything unpersisted is lost, see the SIGKILL trap
 below), so a flow that needs a signed-in or onboarded app must repeat those steps itself. A relaunch that never
 reaches the foreground is a problem (`<flow>: relaunch with [...] never came up`) and that flow's steps are skipped.
+The first tap recorded after a relaunch carries `afterLaunch: true`: the app's `gate-perf` counters started again,
+so the `app-timings` rule forgets the earlier readings and judges that launch's first timed tap against
+`maxFirstAppMillis`.
 
 A `background` step marks the next tap with `afterBackground: {"seconds": 3, "resumeMs": 400}` (how long the app
 took to be back in the foreground). After every tap the tour also reads an element with identifier `gate-perf`, if

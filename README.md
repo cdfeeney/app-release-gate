@@ -84,6 +84,10 @@ Every bug an owner confirms becomes one more rule here, and then applies to ever
 3. In the app's release workflow add the `gate` job (see the header of `gate.yml`) and make the upload/deploy job `needs: [tests, gate]` with `if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'`. Remove any input that lets a session approve its own upload.
 4. The repo (or the public build copy) needs the `CLAUDE_CODE_OAUTH_TOKEN` secret for the reader.
 
+Optional secret `APP_BUILD_SETTINGS` (iOS tour build only): dotenv lines `KEY=VALUE`, each passed to the tour's
+`xcodebuild` as a build setting, e.g. an API key the app reads from Info.plist. Blank lines, `#` comments and keys
+that are not `[A-Za-z_][A-Za-z0-9_]*` are dropped (`scripts/build-settings-args.sh`); unset means no extra settings.
+
 Write `tour.json` from the design's list of screens and controls, not from the code.
 
 ## Running pieces locally

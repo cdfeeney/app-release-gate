@@ -6,7 +6,7 @@ name: Release gate
 #     uses: cdfeeney/app-release-gate/.github/workflows/gate.yml@main
 #     with: { container: "-project MyApp.xcodeproj", scheme: MyApp, ui_test_target: MyAppUITests, gate_dir: MyAppUITests/Gate }
 #     # optional: prepare: "brew install xcodegen && xcodegen generate"  (apps whose project is generated, not committed)
-#     secrets: inherit
+#     secrets: inherit   # optional secret APP_BUILD_SETTINGS: dotenv KEY=VALUE lines passed to the tour's xcodebuild
 #   upload:
 #     needs: [tests, gate]
 #     if: needs.gate.result == 'success' && needs.gate.outputs.verdict == 'PASS'
@@ -62,6 +62,10 @@ on:
         description: Model for the blind reader; empty keeps the Claude Code default
         type: string
         default: ""
+    secrets:
+      APP_BUILD_SETTINGS:
+        required: false
+        description: "Optional. Dotenv lines of xcodebuild build settings for the tour build (e.g. an API key the app reads from Info.plist)"
     outputs:
       verdict:
         description: PASS only when the tour ran, every rule passed and the blind reader passed
@@ -111,8 +115,10 @@ jobs:
         env:
           TEST_RUNNER_TOUR_PATH: ${{ github.workspace }}/${{ inputs.gate_dir }}/tour.json
           TEST_RUNNER_TOUR_OUT: ${{ runner.temp }}/tour
+          APP_BUILD_SETTINGS: ${{ secrets.APP_BUILD_SETTINGS }}
         run: |
           mkdir -p "$RUNNER_TEMP/tour"
+          EXTRA=(); while IFS= read -r l; do EXTRA+=("$l"); done < <(bash .release-gate-kit/scripts/build-settings-args.sh)
           set +e
           xcodebuild ${{ inputs.container }} -scheme "${{ inputs.scheme }}" -configuration Debug \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -121,6 +127,7 @@ jobs:
             -only-testing:"${{ inputs.ui_test_target }}/TourTests" \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
+            ${EXTRA[@]+"${EXTRA[@]}"} \
             test > "$RUNNER_TEMP/tour/xcodebuild.log" 2>&1
           XCODEBUILD_STATUS=$?
           set -e

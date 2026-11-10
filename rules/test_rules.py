@@ -398,6 +398,46 @@ def test_contained_in_two_containers_one_holds_child():
     assert not report.findings and report.checked.get("contained-in") == 2, (report.findings, report.checked)
 
 
+CARD_BOX = "Other, 0x11672a100, {{12.0, 561.0}, {369.0, 196.0}}, identifier: 'map.card'"
+INSIDE_NAME = "{{28.0, 577.0}, {130.3, 25.3}}, identifier: 'map.card.name'"
+
+
+def test_contained_in_zero_size_child_is_missing():
+    for size in ("{130.3, 0.0}", "{0.0, 25.3}", "{-130.3, -25.3}"):   # Codex r1: zero height passed as "inside"
+        flat = CARD_INSIDE.replace(INSIDE_NAME, "{{28.0, 577.0}, " + size + "}, identifier: 'map.card.name'")
+        assert size in flat
+        found = contained_in(flat).findings
+        assert len(found) == 1 and found[0]["message"] == "map.card has no ^map\\.card\\.name$ inside it", (size, found)
+
+
+def test_contained_in_unmeasurable_container_is_a_finding():
+    for box in ("Other, 0x11672a100, identifier: 'map.card'",                                   # Codex r1: silent skip
+                "Other, 0x11672a100, {{12.0, 561.0}, {369.0, 0.0}}, identifier: 'map.card'",
+                "Other, 0x11672a100, {{12.0, 561.0}, {-369.0, -196.0}}, identifier: 'map.card'"):
+        report = contained_in(CARD_INSIDE.replace(CARD_BOX, box))
+        assert report.checked.get("contained-in") == 1, (box, report.checked)
+        assert [f["message"] for f in report.findings] == ["map.card has no measurable frame"], (box, report.findings)
+    parked = CARD_INSIDE.replace("Path to element:", "      Other, 0x30, identifier: 'map.card.parked'\nPath to element:")
+    report = contained_in(parked)
+    assert report.checked.get("contained-in") == 2, report.checked
+    assert [f["message"] for f in report.findings] == ["map.card.parked has no measurable frame"], report.findings
+
+
+def test_contained_in_offscreen_container_still_measured():
+    low = CARD_INSIDE.replace(CARD_BOX, "Other, 0x11672a100, {{12.0, 900.0}, {369.0, 196.0}}, identifier: 'map.card'")
+    found = contained_in(low).findings
+    assert len(found) == 1 and "sticks out of map.card (12,900 369×196)" in found[0]["message"], found
+    held = low.replace(INSIDE_NAME, "{{28.0, 916.0}, {130.3, 25.3}}, identifier: 'map.card.name'")
+    assert not contained_in(held).findings
+
+
+def test_contained_in_degenerate_duplicate_child_ignored():
+    twin = CARD_STICKS_OUT.replace("Path to element:", "        StaticText, 0x40, {{28.0, 577.0}, {130.3, 0.0}}, "
+                                   "identifier: 'map.card.name', label: ''\nPath to element:")
+    found = contained_in(twin).findings
+    assert [f["message"] for f in found] == ["map.card.name (28,810 130×25) sticks out of map.card (12,561 369×196)"], found
+
+
 def test_contained_in_noop_without_config():
     report = contained_in(MAP_CARD, {k: v for k, v in CONFIG.items() if k != "containedIn"})
     assert not report.findings and "contained-in" not in report.checked, (report.findings, report.checked)
@@ -505,6 +545,10 @@ if __name__ == "__main__":
     test_contained_in_passes_when_inside()
     test_contained_in_child_without_frame_is_missing()
     test_contained_in_two_containers_one_holds_child()
+    test_contained_in_zero_size_child_is_missing()
+    test_contained_in_unmeasurable_container_is_a_finding()
+    test_contained_in_offscreen_container_still_measured()
+    test_contained_in_degenerate_duplicate_child_ignored()
     test_contained_in_noop_without_config()
     test_slow_tap_allow_needs_a_reason()
     test_a_decade_is_not_seconds()

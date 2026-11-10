@@ -36,7 +36,8 @@ This gate looks at what a person sees, with their real data, and refuses the upl
   left and right edges (NextBar 2026-10-18: a photo spilled past its chat bubble and the screen; the reader passed it).
   Off unless configured, since a carousel legitimately overhangs
 - `contained-in`: pairs in `containedIn` (`[{"child": regex, "container": regex}]`); a container on screen must hold
-  its child, fully. Off unless configured
+  its child, fully. A zero-size child does not count; a container with no frame or a zero size is a finding.
+  Off unless configured
 - `controls-change-screen`: every tapped control changed something
 - `taps-respond`: every tap is answered within `maxTapMillis` (default 1500). The tour records `idleMs` per tap, the
   time XCUITest's tap call took, and that call returns only when the app is idle again, so a main-thread stall is

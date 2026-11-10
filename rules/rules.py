@@ -365,19 +365,25 @@ def rule_content_in_bounds(screens, cfg, report):
 
 def rule_contained_in(screens, cfg, report):
     """A container on screen must hold its named child, fully. 2026-11-09: a card's name line was laid out below
-    the card's bottom edge and every other rule passed it. Pairs come from `containedIn: [{"child": regex, "container": regex}]`; a stop with no container is skipped."""
+    the card's bottom edge and every other rule passed it. Pairs come from `containedIn: [{"child": regex, "container": regex}]`; a stop with no container is skipped. A child counts only
+    with a positive width and height; a matched container without one is a finding, never a skip."""
     pairs = [(re.compile(p["child"]), re.compile(p["container"]), p["child"]) for p in cfg.get("containedIn", [])]
     for child_re, container_re, child_pattern in pairs:
         for screen in screens:
             where = f"{screen['fixture']}/{screen['flow']}"
             for stop in screen["stops"]:
-                framed = [el for el in stop["elements"] if el["identifier"] and el["frame"]]
-                containers = [el for el in framed if container_re.search(el["identifier"])]
+                named = [el for el in stop["elements"] if el["identifier"]]
+                matched = [el for el in named if container_re.search(el["identifier"])]
+                containers = []
+                for box in matched:
+                    report.count("contained-in")
+                    if has_area(box["frame"]):
+                        containers.append(box)
+                    else:
+                        report.fail("contained-in", where, f"{box['identifier']} has no measurable frame")
                 if not containers:
                     continue
-                for _ in containers:
-                    report.count("contained-in")
-                children = [el for el in framed if child_re.search(el["identifier"])]
+                children = [el for el in named if child_re.search(el["identifier"]) and has_area(el["frame"])]
                 if any(inside(c["frame"], k["frame"]) for c in children for k in containers):
                     continue
                 box = containers[0]
@@ -388,6 +394,11 @@ def rule_contained_in(screens, cfg, report):
                 cx, cy, cw, ch = box["frame"]
                 report.fail("contained-in", where, f"{children[0]['identifier']} ({x:.0f},{y:.0f} {w:.0f}×{h:.0f}) sticks out of "
                                                    f"{box['identifier']} ({cx:.0f},{cy:.0f} {cw:.0f}×{ch:.0f})")
+
+
+def has_area(frame):
+    """A frame that can be seen and measured: present, with positive width and height."""
+    return bool(frame) and frame[2] > 0 and frame[3] > 0
 
 
 def inside(child, box):
